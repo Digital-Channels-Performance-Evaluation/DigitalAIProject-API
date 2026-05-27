@@ -1,0 +1,24 @@
+{
+  "is_valid": true,
+  "errors": [],
+  "warnings": [],
+  "row_count": 8760,
+  "column_count": 11,
+  "missing_values": {
+    "product_id": 0,
+    "metric_date": 0,
+    "total_users": 0,
+    "active_users": 0,
+    "transaction_count": 0,
+    "transaction_value": 0,
+    "revenue": 0,
+    "failed_transactions": 0,
+    "complaints": 0,
+    "downtime_minutes": 0,
+    "fraud_incidents": 0
+  },
+  "date_range": {
+    "min": "2023-05-27 00:00:00",
+    "max": "2026-05-25 00:00:00"
+  }
+}
