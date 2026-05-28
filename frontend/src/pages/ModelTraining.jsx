@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Grid, Paper, Typography, Box, Button, Select, MenuItem,
-  FormControl, InputLabel, Alert, CircularProgress, Divider,
+  FormControl, InputLabel, CircularProgress, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   LinearProgress, Tooltip, Chip,
 } from '@mui/material';
@@ -52,7 +52,6 @@ export default function ModelTraining() {
   const [selectedDataset, setSelectedDataset] = useState('');
   const [selectedModelType, setSelectedModelType] = useState('xgboost');
   const [training, setTraining] = useState(false);
-  const [alert, setAlert] = useState(null);
   const [loading, setLoading] = useState(true);
   const [drawerModel, setDrawerModel] = useState(null);
 
@@ -78,18 +77,16 @@ export default function ModelTraining() {
   const handleTrain = async () => {
     if (!selectedDataset) return;
     setTraining(true);
-    setAlert(null);
     try {
       const res = await trainModel({
         dataset_id: parseInt(selectedDataset),
         model_type: selectedModelType,
         target: 'performance_tier',
       });
-      setAlert({ severity: 'success', message: res.data.message });
-      toast.success('Model training started in background.');
+      toast.success(res.data.message || 'Model training started in background.');
       fetchAll();
     } catch (err) {
-      setAlert({ severity: 'error', message: err.message });
+      toast.error(err.message);
     } finally {
       setTraining(false);
     }
@@ -99,8 +96,9 @@ export default function ModelTraining() {
     try {
       await deleteModel(id);
       setModels((prev) => prev.filter((m) => m.id !== id));
+      toast.success('Model deleted.');
     } catch (err) {
-      setAlert({ severity: 'error', message: err.message });
+      toast.error(err.message);
     }
   };
 
@@ -121,12 +119,6 @@ export default function ModelTraining() {
               </Box>
               <Typography variant="h6">Train New Model</Typography>
             </Box>
-
-            {alert && (
-              <Alert severity={alert.severity} onClose={() => setAlert(null)} sx={{ mb: 2 }}>
-                {alert.message}
-              </Alert>
-            )}
 
             <FormControl fullWidth size="small" sx={{ mb: 2 }}>
               <InputLabel>Select Dataset</InputLabel>

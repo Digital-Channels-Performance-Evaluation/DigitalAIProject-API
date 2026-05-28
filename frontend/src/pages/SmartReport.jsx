@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box, Grid, Paper, Typography, Select, MenuItem, FormControl,
-  InputLabel, CircularProgress, Button, Chip, Divider, Alert,
+  InputLabel, CircularProgress, Button, Chip, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   LinearProgress, Tooltip, useTheme,
 } from '@mui/material';
@@ -22,6 +22,7 @@ import {
 import { listModels, getReportData, downloadReport } from '../api/endpoints';
 import SectionHeader from '../components/common/SectionHeader';
 import StatusBadge   from '../components/common/StatusBadge';
+import { useToast }  from '../context/ToastContext';
 
 const TIER_COLORS  = { Excellent: '#10b981', Good: '#6366f1', Average: '#f59e0b', Poor: '#ef4444' };
 const TIER_ORDER   = ['Excellent', 'Good', 'Average', 'Poor'];
@@ -144,13 +145,13 @@ function NarrativeSection({ text }) {
 
 export default function SmartReport() {
   const theme   = useTheme();
+  const toast   = useToast();
   const isDark  = theme.palette.mode === 'dark';
 
   const [models,  setModels]  = useState([]);
   const [modelId, setModelId] = useState('');
   const [report,  setReport]  = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
   const printRef = useRef();
 
   // Theme-aware chart colors
@@ -172,10 +173,10 @@ export default function SmartReport() {
   useEffect(() => { if (modelId) loadReport(); }, [modelId]);
 
   const loadReport = () => {
-    setLoading(true); setError('');
+    setLoading(true);
     getReportData(modelId)
       .then(r => setReport(r.data))
-      .catch(e => setError(e.message))
+      .catch(e => toast.error(e.message || 'Failed to load report'))
       .finally(() => setLoading(false));
   };
 
@@ -245,10 +246,6 @@ export default function SmartReport() {
           )}
         </Grid>
       </Paper>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>
-      )}
 
       {loading ? (
         <Box sx={{ py: 10, textAlign: 'center' }}>

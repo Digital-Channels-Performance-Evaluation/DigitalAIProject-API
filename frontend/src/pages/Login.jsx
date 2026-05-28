@@ -2,37 +2,37 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Typography, TextField, Button,
-  InputAdornment, IconButton, Alert, CircularProgress,
+  InputAdornment, IconButton, CircularProgress,
   useTheme,
 } from '@mui/material';
-import EmailIcon    from '@mui/icons-material/Email';
-import LockIcon     from '@mui/icons-material/Lock';
-import Visibility   from '@mui/icons-material/Visibility';
+import EmailIcon     from '@mui/icons-material/Email';
+import LockIcon      from '@mui/icons-material/Lock';
+import Visibility    from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
-import { useAuth }  from '../context/AuthContext';
+import { useAuth }   from '../context/AuthContext';
+import { useToast }  from '../context/ToastContext';
 
 export default function Login() {
   const { login } = useAuth();
   const navigate  = useNavigate();
   const theme     = useTheme();
+  const toast     = useToast();
   const isDark    = theme.palette.mode === 'dark';
 
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [showPwd,  setShowPwd]  = useState(false);
   const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       await login(email, password);
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(err.message || 'Invalid email or password');
+      toast.error(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -81,12 +81,6 @@ export default function Login() {
           <Typography variant="body2" sx={{ mb: 3, color: 'text.secondary' }}>
             Enter your credentials to access the platform
           </Typography>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-              {error}
-            </Alert>
-          )}
 
           <form onSubmit={handleSubmit}>
             <TextField

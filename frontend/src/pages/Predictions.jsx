@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Paper, Typography, Grid, Button, Select, MenuItem,
-  FormControl, InputLabel, CircularProgress, Alert, Table,
+  FormControl, InputLabel, CircularProgress, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, LinearProgress, TextField, InputAdornment,
 } from '@mui/material';
@@ -35,7 +35,6 @@ export default function Predictions() {
   const [predictions, setPredictions] = useState([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [alert, setAlert] = useState(null);
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState('All');
 
@@ -77,15 +76,12 @@ export default function Predictions() {
   const handleRunPredictions = async () => {
     if (!selectedModel || !selectedDataset) return;
     setRunning(true);
-    setAlert(null);
     try {
       const res = await runPredictions(selectedModel, selectedDataset);
       setPredictions(res.data.predictions || []);
       toast.success(`${res.data.total} predictions generated successfully.`);
-      setAlert({ severity: 'success', message: `${res.data.total} predictions generated successfully.` });
     } catch (err) {
       toast.error(err.message);
-      setAlert({ severity: 'error', message: err.message });
     } finally {
       setRunning(false);
     }
@@ -127,12 +123,6 @@ export default function Predictions() {
         title="Predictions"
         subtitle="Run and explore channel performance predictions"
       />
-
-      {alert && (
-        <Alert severity={alert.severity} onClose={() => setAlert(null)} sx={{ mb: 3 }}>
-          {alert.message}
-        </Alert>
-      )}
 
       {/* Controls */}
       <Paper sx={{ p: 3, mb: 3 }}>
