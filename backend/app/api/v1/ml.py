@@ -173,10 +173,16 @@ def get_predictions(model_id: int, db: Session = Depends(get_db),
 @router.delete("/models/{model_id}")
 def delete_model(model_id: int, db: Session = Depends(get_db),
                  _: models.User = Depends(require_analyst)):
-    """Delete a model record."""
+    """Delete a model and all its associated predictions."""
     ml_model = db.query(models.MLModel).filter(models.MLModel.id == model_id).first()
     if not ml_model:
         raise HTTPException(status_code=404, detail="Model not found")
+
+    # Delete child predictions first to satisfy FK constraint
+    db.query(models.Prediction).filter(
+        models.Prediction.model_id == model_id
+    ).delete(synchronize_session=False)
+
     db.delete(ml_model)
     db.commit()
-    return {"message": f"Model {model_id} deleted"}
+    return {"message": f"Model {model_id} and all its predictions deleted"}

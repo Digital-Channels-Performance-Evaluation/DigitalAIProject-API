@@ -84,7 +84,14 @@ export const getChannelTrend      = (productId, modelId) =>
   api.get('/analytics/channel-trend', { params: { product_id: productId, ...(modelId ? { model_id: modelId } : {}) } });
 export const getChannelsOverview  = (modelId)    =>
   api.get('/analytics/channels-overview', { params: modelId ? { model_id: modelId } : {} });
-export const getAuditLog          = (limit = 50) => api.get('/analytics/audit-log', { params: { limit } });
+export const getAuditLog = (page = 1, pageSize = 20, actionFilter = null) =>
+  api.get('/analytics/audit-log', {
+    params: {
+      page,
+      page_size: pageSize,
+      ...(actionFilter && actionFilter !== 'all' ? { action_filter: actionFilter } : {}),
+    },
+  });
 export const updateModelNotes     = (modelId, notes) =>
   api.put(`/analytics/model-notes/${modelId}`, null, { params: { notes } });
 export const exportPredictions    = (modelId)    =>
