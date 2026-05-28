@@ -251,10 +251,28 @@ def scan_folder(db: Session = Depends(get_db),
 @router.delete("/dataset/{dataset_id}")
 def delete_dataset(dataset_id: int, db: Session = Depends(get_db),
                    _: models.User = Depends(require_analyst)):
-    """Delete a dataset record (and optionally its files)."""
+    """Delete a dataset and all its related data."""
     dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # 1. Delete predictions that reference this dataset
+    db.query(models.Prediction).filter(
+        models.Prediction.dataset_id == dataset_id
+    ).delete(synchronize_session=False)
+
+    # 2. Delete channel metrics for this dataset
+    db.query(models.ChannelMetric).filter(
+        models.ChannelMetric.dataset_id == dataset_id
+    ).delete(synchronize_session=False)
+
+    # 3. Null out trained_on_dataset_id on any models trained on this dataset
+    #    (don't delete the models — just unlink them from this dataset)
+    db.query(models.MLModel).filter(
+        models.MLModel.trained_on_dataset_id == dataset_id
+    ).update({"trained_on_dataset_id": None}, synchronize_session=False)
+
+    db.commit()
     db.delete(dataset)
     db.commit()
-    return {"message": f"Dataset {dataset_id} deleted"}
+    return {"message": f"Dataset {dataset_id} and all related data deleted"}

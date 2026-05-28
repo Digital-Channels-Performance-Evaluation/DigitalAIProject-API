@@ -308,16 +308,17 @@ def export_dataset(
 
 @router.get("/audit-log")
 def audit_log(
-    limit: int = Query(50, le=200),
+    page:      int = Query(1,   ge=1,        description="Page number (1-based)"),
+    page_size: int = Query(20,  ge=5, le=100, description="Events per page"),
+    action_filter: Optional[str] = Query(None, description="Filter by action prefix"),
     db: Session = Depends(get_db),
     _: models.User = Depends(get_current_user),
 ):
-    """Combined audit log of all platform actions."""
+    """Combined audit log of all platform actions with pagination."""
     events = []
 
     # Dataset uploads
-    datasets = db.query(models.Dataset).order_by(models.Dataset.uploaded_at.desc()).limit(limit).all()
-    for d in datasets:
+    for d in db.query(models.Dataset).order_by(models.Dataset.uploaded_at.desc()).all():
         events.append({
             "timestamp": d.uploaded_at,
             "action": "dataset_uploaded",
@@ -337,8 +338,7 @@ def audit_log(
             })
 
     # Model training
-    ml_models = db.query(models.MLModel).order_by(models.MLModel.created_at.desc()).limit(limit).all()
-    for m in ml_models:
+    for m in db.query(models.MLModel).order_by(models.MLModel.created_at.desc()).all():
         events.append({
             "timestamp": m.created_at,
             "action": "model_training_started",
@@ -358,8 +358,7 @@ def audit_log(
             })
 
     # User logins
-    users = db.query(models.User).filter(models.User.last_login.isnot(None)).order_by(models.User.last_login.desc()).limit(20).all()
-    for u in users:
+    for u in db.query(models.User).filter(models.User.last_login.isnot(None)).order_by(models.User.last_login.desc()).all():
         events.append({
             "timestamp": u.last_login,
             "action": "user_login",
@@ -369,8 +368,24 @@ def audit_log(
             "status": "active",
         })
 
+    # Sort all events newest first
     events.sort(key=lambda x: x["timestamp"] or datetime.min, reverse=True)
-    return events[:limit]
+
+    # Apply action filter
+    if action_filter and action_filter != "all":
+        events = [e for e in events if e["action"].startswith(action_filter)]
+
+    total = len(events)
+    start = (page - 1) * page_size
+    end   = start + page_size
+
+    return {
+        "events":     events[start:end],
+        "total":      total,
+        "page":       page,
+        "page_size":  page_size,
+        "total_pages": max(1, (total + page_size - 1) // page_size),
+    }
 
 
 # ── Model Notes ───────────────────────────────────────────────────────────────
