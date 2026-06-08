@@ -17,7 +17,7 @@ import io, csv, json
 from datetime import datetime, timedelta
 
 from app.database import get_db
-from app.core.deps import get_current_user, require_analyst
+from app.core.deps import get_current_user, require_analyst, require_admin
 from app import models
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -355,7 +355,7 @@ def audit_log(
     page_size: int = Query(20,  ge=5, le=100, description="Events per page"),
     action_filter: Optional[str] = Query(None, description="Filter by action prefix"),
     db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_user),
+    _: models.User = Depends(require_admin),   # Admin only
 ):
     """Combined audit log of all platform actions with pagination."""
     events = []

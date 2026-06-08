@@ -9,9 +9,10 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    admin = "admin"
-    analyst = "analyst"
-    viewer = "viewer"
+    admin             = "admin"               # Full access incl. user management & audit log
+    executive_manager = "executive_manager"   # Full read access; NO upload, NO audit, NO users
+    manager           = "manager"             # Like executive_manager + data upload + train
+    officer           = "officer"             # Same as manager
 
 
 class UploadStatus(str, enum.Enum):
@@ -36,7 +37,7 @@ class User(Base):
     full_name = Column(String(150), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(SAEnum(UserRole), default=UserRole.viewer, nullable=False)
+    role = Column(SAEnum(UserRole), default=UserRole.officer, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     avatar_url = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

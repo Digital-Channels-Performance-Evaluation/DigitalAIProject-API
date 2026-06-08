@@ -18,9 +18,10 @@ class ModelStatusEnum(str, Enum):
 
 
 class UserRoleEnum(str, Enum):
-    admin = "admin"
-    analyst = "analyst"
-    viewer = "viewer"
+    admin             = "admin"
+    executive_manager = "executive_manager"
+    manager           = "manager"
+    officer           = "officer"
 
 
 # ── User Schemas ─────────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ class UserCreate(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    role: UserRoleEnum = UserRoleEnum.viewer
+    role: UserRoleEnum = UserRoleEnum.officer
 
     @field_validator("password")
     @classmethod

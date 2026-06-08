@@ -62,3 +62,8 @@ export function useIsAdmin() {
   const { user } = useAuth();
   return user?.role === 'admin';
 }
+
+export function useHasDataAccess() {
+  const { user } = useAuth();
+  return ['admin', 'manager', 'officer'].includes(user?.role);
+}

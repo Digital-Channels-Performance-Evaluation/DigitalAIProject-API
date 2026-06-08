@@ -30,7 +30,19 @@ const PAGE_TITLES = {
   '/users':       { title: 'User Management',  subtitle: 'Manage platform users & roles' },
 };
 
-const ROLE_COLORS = { admin: 'error', analyst: 'primary', viewer: 'default' };
+const ROLE_COLORS = {
+  admin:             'error',
+  executive_manager: 'secondary',
+  manager:           'primary',
+  officer:           'info',
+};
+
+const ROLE_LABELS = {
+  admin:             'Admin',
+  executive_manager: 'Exec. Manager',
+  manager:           'Manager',
+  officer:           'Officer',
+};
 
 export default function TopBar({ onMenuClick }) {
   const location    = useLocation();
@@ -186,8 +198,8 @@ export default function TopBar({ onMenuClick }) {
         {/* Role chip */}
         {user && (
           <Chip
-            label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-            color={ROLE_COLORS[user.role]}
+            label={ROLE_LABELS[user.role] || user.role}
+            color={ROLE_COLORS[user.role] || 'default'}
             size="small"
             sx={{ height: 22, fontSize: '0.7rem', fontWeight: 600, '& .MuiChip-label': { px: 1 } }}
           />

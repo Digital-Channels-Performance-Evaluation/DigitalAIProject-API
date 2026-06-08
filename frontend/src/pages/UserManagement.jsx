@@ -6,40 +6,65 @@ import {
   Select, MenuItem, FormControl, InputLabel, CircularProgress,
   Switch, FormControlLabel, Avatar,
 } from '@mui/material';
-import AddIcon      from '@mui/icons-material/Add';
-import EditIcon     from '@mui/icons-material/Edit';
-import DeleteIcon   from '@mui/icons-material/Delete';
+import AddIcon       from '@mui/icons-material/Add';
+import EditIcon      from '@mui/icons-material/Edit';
+import DeleteIcon    from '@mui/icons-material/Delete';
 import LockResetIcon from '@mui/icons-material/LockReset';
-import api          from '../api/axiosConfig';
-import { useAuth }  from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
+import api           from '../api/axiosConfig';
+import { useAuth }   from '../context/AuthContext';
+import { useToast }  from '../context/ToastContext';
 import SectionHeader from '../components/common/SectionHeader';
-import StatusBadge   from '../components/common/StatusBadge';
 
-const ROLE_COLORS = { admin: 'error', analyst: 'warning', viewer: 'default' };
-const ROLE_LABELS = { admin: 'Admin', analyst: 'Analyst', viewer: 'Viewer' };
+// ── Role config ───────────────────────────────────────────────────────────────
+const ROLES = [
+  {
+    value: 'admin',
+    label: 'Admin',
+    color: 'error',
+    desc:  'Full access — users, audit log, data, models, all reports',
+  },
+  {
+    value: 'executive_manager',
+    label: 'Executive Manager',
+    color: 'secondary',
+    desc:  'Full read access — dashboard, predictions, ranking, analytics, report. No upload or audit.',
+  },
+  {
+    value: 'manager',
+    label: 'Manager',
+    color: 'primary',
+    desc:  'Like Executive Manager + can upload data and train models.',
+  },
+  {
+    value: 'officer',
+    label: 'Officer',
+    color: 'info',
+    desc:  'Same as Manager — upload data, train models, run predictions.',
+  },
+];
+
+const ROLE_MAP   = Object.fromEntries(ROLES.map(r => [r.value, r]));
 
 function initials(name) {
   return name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '??';
 }
 
-const EMPTY_FORM = { full_name: '', email: '', password: '', role: 'viewer' };
+const EMPTY_FORM = { full_name: '', email: '', password: '', role: 'officer' };
 
 export default function UserManagement() {
   const { user: me } = useAuth();
   const toast = useToast();
+
   const [users,   setUsers]   = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Create / Edit dialog
-  const [dialog,   setDialog]   = useState(null); // null | 'create' | 'edit'
+  const [dialog,   setDialog]   = useState(null);   // null | 'create' | 'edit'
   const [editUser, setEditUser] = useState(null);
   const [form,     setForm]     = useState(EMPTY_FORM);
   const [saving,   setSaving]   = useState(false);
 
-  // Reset password dialog
   const [resetDialog, setResetDialog] = useState(null);
-  const [newPwd,       setNewPwd]      = useState('');
+  const [newPwd,      setNewPwd]      = useState('');
 
   const fetchUsers = async () => {
     try {
@@ -56,7 +81,6 @@ export default function UserManagement() {
 
   // ── Create ────────────────────────────────────────────────────────────────
   const openCreate = () => { setForm(EMPTY_FORM); setDialog('create'); };
-
   const handleCreate = async () => {
     setSaving(true);
     try {
@@ -75,14 +99,13 @@ export default function UserManagement() {
     setForm({ full_name: u.full_name, email: u.email, role: u.role, is_active: u.is_active });
     setDialog('edit');
   };
-
   const handleEdit = async () => {
     setSaving(true);
     try {
       await api.put(`/users/${editUser.id}`, {
         full_name: form.full_name,
-        email: form.email,
-        role: form.role,
+        email:     form.email,
+        role:      form.role,
         is_active: form.is_active,
       });
       toast.success('User updated.');
@@ -107,8 +130,7 @@ export default function UserManagement() {
 
   // ── Reset password ────────────────────────────────────────────────────────
   const handleResetPassword = async () => {
-    if (!newPwd.trim()) return;
-    if (newPwd.length < 8) {
+    if (!newPwd.trim() || newPwd.length < 8) {
       toast.error('Password must be at least 8 characters.');
       return;
     }
@@ -135,15 +157,17 @@ export default function UserManagement() {
       />
 
       {/* Role legend */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        {[
-          { role: 'admin',   desc: 'Full access — manage users, train models, upload data' },
-          { role: 'analyst', desc: 'Upload data, train models, run predictions' },
-          { role: 'viewer',  desc: 'Read-only — view dashboard and predictions' },
-        ].map(({ role, desc }) => (
-          <Box key={role} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Chip label={ROLE_LABELS[role]} color={ROLE_COLORS[role]} size="small" sx={{ fontWeight: 600 }} />
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>{desc}</Typography>
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
+        {ROLES.map(({ value, label, color, desc }) => (
+          <Box key={value} sx={{
+            display: 'flex', alignItems: 'flex-start', gap: 1,
+            p: 1.5, borderRadius: 2, flex: '1 1 220px',
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper',
+          }}>
+            <Chip label={label} color={color} size="small" sx={{ fontWeight: 700, flexShrink: 0, mt: 0.25 }} />
+            <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.5 }}>{desc}</Typography>
           </Box>
         ))}
       </Box>
@@ -159,99 +183,123 @@ export default function UserManagement() {
                   <TableCell>User</TableCell>
                   <TableCell>Email</TableCell>
                   <TableCell>Role</TableCell>
+                  <TableCell>Permissions</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Last Login</TableCell>
-                  <TableCell>Created</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {users.map(u => (
-                  <TableRow key={u.id} hover sx={{ opacity: u.is_active ? 1 : 0.5 }}>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <Avatar
-                          sx={{
-                            width: 34, height: 34, fontSize: '0.75rem', fontWeight: 700,
-                            bgcolor: u.id === me?.id ? 'primary.dark' : 'rgba(99,102,241,0.2)',
-                            color: 'primary.light',
-                          }}
-                          src={u.avatar_url ? `http://localhost:8000${u.avatar_url}` : undefined}
-                        >
-                          {!u.avatar_url && initials(u.full_name)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            {u.full_name}
-                            {u.id === me?.id && (
-                              <Chip label="You" size="small" sx={{ ml: 1, height: 16, fontSize: '0.6rem' }} />
-                            )}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>{u.email}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={ROLE_LABELS[u.role]}
-                        color={ROLE_COLORS[u.role]}
-                        size="small"
-                        sx={{ fontWeight: 600, fontSize: '0.7rem' }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={u.is_active ? 'Active' : 'Disabled'}
-                        color={u.is_active ? 'success' : 'default'}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontSize: '0.7rem' }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        {new Date(u.created_at).toLocaleDateString()}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Edit user">
-                        <IconButton size="small" onClick={() => openEdit(u)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Reset password">
-                        <IconButton size="small" onClick={() => { setResetDialog(u); setNewPwd(''); }}>
-                          <LockResetIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={u.id === me?.id ? "Can't delete yourself" : "Delete user"}>
-                        <span>
-                          <IconButton
-                            size="small" color="error"
-                            disabled={u.id === me?.id}
-                            onClick={() => handleDelete(u)}
+                {users.map(u => {
+                  const roleCfg = ROLE_MAP[u.role] || { label: u.role, color: 'default' };
+                  return (
+                    <TableRow key={u.id} hover sx={{ opacity: u.is_active ? 1 : 0.5 }}>
+                      {/* User */}
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Avatar
+                            src={u.avatar_url ? `http://localhost:8000${u.avatar_url}` : undefined}
+                            sx={{
+                              width: 34, height: 34, fontSize: '0.75rem', fontWeight: 700,
+                              bgcolor: u.id === me?.id ? 'primary.dark' : 'rgba(99,102,241,0.2)',
+                              color: 'primary.light',
+                            }}
                           >
-                            <DeleteIcon fontSize="small" />
+                            {!u.avatar_url && initials(u.full_name)}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {u.full_name}
+                              {u.id === me?.id && (
+                                <Chip label="You" size="small" sx={{ ml: 1, height: 16, fontSize: '0.6rem' }} />
+                              )}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </TableCell>
+
+                      {/* Email */}
+                      <TableCell>
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>{u.email}</Typography>
+                      </TableCell>
+
+                      {/* Role badge */}
+                      <TableCell>
+                        <Chip
+                          label={roleCfg.label}
+                          color={roleCfg.color}
+                          size="small"
+                          sx={{ fontWeight: 600, fontSize: '0.7rem' }}
+                        />
+                      </TableCell>
+
+                      {/* Permission summary */}
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          <Chip label="View" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem', borderColor: '#10b981', color: '#10b981' }} />
+                          {['admin','manager','officer'].includes(u.role) && (
+                            <Chip label="Upload" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem', borderColor: '#6366f1', color: '#6366f1' }} />
+                          )}
+                          {['admin','manager','officer'].includes(u.role) && (
+                            <Chip label="Train" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem', borderColor: '#06b6d4', color: '#06b6d4' }} />
+                          )}
+                          {u.role === 'admin' && (
+                            <Chip label="Admin" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem', borderColor: '#ef4444', color: '#ef4444' }} />
+                          )}
+                        </Box>
+                      </TableCell>
+
+                      {/* Status */}
+                      <TableCell>
+                        <Chip
+                          label={u.is_active ? 'Active' : 'Disabled'}
+                          color={u.is_active ? 'success' : 'default'}
+                          size="small" variant="outlined"
+                          sx={{ fontSize: '0.7rem' }}
+                        />
+                      </TableCell>
+
+                      {/* Last login */}
+                      <TableCell>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                          {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+                        </Typography>
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell align="right">
+                        <Tooltip title="Edit user">
+                          <IconButton size="small" onClick={() => openEdit(u)}>
+                            <EditIcon fontSize="small" />
                           </IconButton>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        </Tooltip>
+                        <Tooltip title="Reset password">
+                          <IconButton size="small" onClick={() => { setResetDialog(u); setNewPwd(''); }}>
+                            <LockResetIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={u.id === me?.id ? "Can't delete yourself" : 'Delete user'}>
+                          <span>
+                            <IconButton
+                              size="small" color="error"
+                              disabled={u.id === me?.id}
+                              onClick={() => handleDelete(u)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
         )}
       </Paper>
 
-      {/* ── Create / Edit Dialog ─────────────────────────────────────────── */}
+      {/* ── Create / Edit Dialog ───────────────────────────────────────────── */}
       <Dialog open={Boolean(dialog)} onClose={() => setDialog(null)} maxWidth="sm" fullWidth
         PaperProps={{ sx: { bgcolor: 'background.paper' } }}>
         <DialogTitle>{dialog === 'create' ? 'Add New User' : 'Edit User'}</DialogTitle>
@@ -278,9 +326,14 @@ export default function UserManagement() {
             <InputLabel>Role</InputLabel>
             <Select value={form.role} label="Role"
               onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-              <MenuItem value="admin">Admin — full access</MenuItem>
-              <MenuItem value="analyst">Analyst — upload & train</MenuItem>
-              <MenuItem value="viewer">Viewer — read only</MenuItem>
+              {ROLES.map(r => (
+                <MenuItem key={r.value} value={r.value}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Chip label={r.label} color={r.color} size="small" sx={{ fontWeight: 700, minWidth: 130 }} />
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>{r.desc}</Typography>
+                  </Box>
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
           {dialog === 'edit' && (
@@ -308,7 +361,7 @@ export default function UserManagement() {
         </DialogActions>
       </Dialog>
 
-      {/* ── Reset Password Dialog ─────────────────────────────────────────── */}
+      {/* ── Reset Password Dialog ──────────────────────────────────────────── */}
       <Dialog open={Boolean(resetDialog)} onClose={() => setResetDialog(null)} maxWidth="xs" fullWidth
         PaperProps={{ sx: { bgcolor: 'background.paper' } }}>
         <DialogTitle>Reset Password</DialogTitle>
@@ -319,8 +372,7 @@ export default function UserManagement() {
           <TextField
             fullWidth label="New Password" type="password"
             value={newPwd} onChange={e => setNewPwd(e.target.value)}
-            size="small" autoFocus
-            helperText="Minimum 8 characters"
+            size="small" autoFocus helperText="Minimum 8 characters"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

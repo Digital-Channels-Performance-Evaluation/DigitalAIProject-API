@@ -16,21 +16,34 @@ import AssessmentIcon    from '@mui/icons-material/Assessment';
 import HistoryIcon       from '@mui/icons-material/History';
 import LogoutIcon        from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import { useAuth }   from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
+import { DATA_ROLES } from '../../App';
 
-const ROLE_COLORS = { admin: '#ef4444', analyst: '#6366f1', viewer: '#94a3b8' };
+// ── Role display config ───────────────────────────────────────────────────────
+const ROLE_META = {
+  admin:             { label: 'Admin',             color: '#ef4444' },
+  executive_manager: { label: 'Executive Manager', color: '#8b5cf6' },
+  manager:           { label: 'Manager',           color: '#6366f1' },
+  officer:           { label: 'Officer',           color: '#06b6d4' },
+};
 
-const NAV_ITEMS = [
+// ── Nav items visible to ALL authenticated roles ──────────────────────────────
+const GENERAL_NAV = [
   { label: 'Dashboard',       icon: <DashboardIcon   />, path: '/dashboard'   },
-  { label: 'Data Management', icon: <StorageIcon     />, path: '/data'        },
-  { label: 'Model Training',  icon: <PsychologyIcon  />, path: '/models'      },
   { label: 'Predictions',     icon: <InsightsIcon    />, path: '/predictions' },
-  { label: 'Channel Ranking', icon: <LeaderboardIcon />, path: '/ranking', alertKey: true },
+  { label: 'Channel Ranking', icon: <LeaderboardIcon />, path: '/ranking'     },
   { label: 'Analytics',       icon: <BarChartIcon    />, path: '/analytics'   },
   { label: 'Smart Report',    icon: <AssessmentIcon  />, path: '/report'      },
 ];
 
-const ADMIN_ITEMS = [
+// ── Nav items visible to data roles (admin, manager, officer) ─────────────────
+const DATA_NAV = [
+  { label: 'Data Management', icon: <StorageIcon    />, path: '/data'   },
+  { label: 'Model Training',  icon: <PsychologyIcon />, path: '/models' },
+];
+
+// ── Admin-only items ──────────────────────────────────────────────────────────
+const ADMIN_NAV = [
   { label: 'User Management', icon: <PeopleIcon  />, path: '/users' },
   { label: 'Audit Log',       icon: <HistoryIcon />, path: '/audit' },
 ];
@@ -42,6 +55,10 @@ export default function Sidebar({ onClose }) {
 
   const handleNav    = (path) => { navigate(path); onClose?.(); };
   const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
+
+  const isAdmin    = user?.role === 'admin';
+  const hasData    = DATA_ROLES.includes(user?.role);
+  const roleMeta   = ROLE_META[user?.role] || { label: user?.role, color: '#94a3b8' };
 
   const NavItem = ({ item }) => {
     const active = location.pathname === item.path;
@@ -104,11 +121,29 @@ export default function Sidebar({ onClose }) {
 
       <Divider />
 
-      {/* Main nav */}
+      {/* Navigation */}
       <List sx={{ px: 1.5, py: 1.5, flexGrow: 1, overflow: 'auto' }}>
-        {NAV_ITEMS.map(item => <NavItem key={item.path} item={item} />)}
 
-        {user?.role === 'admin' && (
+        {/* All roles */}
+        {GENERAL_NAV.map(item => <NavItem key={item.path} item={item} />)}
+
+        {/* Data roles: admin, manager, officer */}
+        {hasData && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            <Typography variant="caption" sx={{
+              px: 1.5, color: 'text.secondary',
+              textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: '0.08em',
+              display: 'block', mb: 0.5,
+            }}>
+              Data & Models
+            </Typography>
+            {DATA_NAV.map(item => <NavItem key={item.path} item={item} />)}
+          </>
+        )}
+
+        {/* Admin only */}
+        {isAdmin && (
           <>
             <Divider sx={{ my: 1.5 }} />
             <Typography variant="caption" sx={{
@@ -118,7 +153,7 @@ export default function Sidebar({ onClose }) {
             }}>
               Administration
             </Typography>
-            {ADMIN_ITEMS.map(item => <NavItem key={item.path} item={item} />)}
+            {ADMIN_NAV.map(item => <NavItem key={item.path} item={item} />)}
           </>
         )}
       </List>
@@ -143,8 +178,8 @@ export default function Sidebar({ onClose }) {
             <Typography variant="caption" sx={{ color: 'text.primary', display: 'block', fontWeight: 600, fontSize: '0.78rem' }} noWrap>
               {user?.full_name}
             </Typography>
-            <Typography variant="caption" sx={{ color: ROLE_COLORS[user?.role] || 'text.secondary', textTransform: 'capitalize', fontSize: '0.62rem' }}>
-              {user?.role}
+            <Typography variant="caption" sx={{ color: roleMeta.color, fontSize: '0.62rem' }}>
+              {roleMeta.label}
             </Typography>
           </Box>
           <Tooltip title="My Profile">
