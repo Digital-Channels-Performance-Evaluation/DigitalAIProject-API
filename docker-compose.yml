@@ -1,0 +1,159 @@
+version: "3.9"
+
+services:
+  # ── MySQL Database ──────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: ahadu_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_change_me
+      MYSQL_DATABASE: ahadu_bank_eval
+      MYSQL_USER: ahadu_user
+      MYSQL_PASSWORD: ahadu_pass
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ahadu_user", "-pahadu_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ahadu_net
+
+  # ── Redis ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ahadu_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ahadu_net
+
+  # ── Backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ahadu_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql+pymysql://ahadu_user:ahadu_pass@mysql:3306/ahadu_bank_eval
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      JWT_SECRET_KEY: ahadu-bank-super-secret-jwt-key-change-in-production-2024
+      DEBUG: "false"
+      ALLOWED_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost","http://frontend:3000","http://127.0.0.1:3000","http://127.0.0.1"]'
+    volumes:
+      - ml_models:/app/ml_models
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - ahadu_net
+
+  # ── Celery Worker ──────────────────────────────────────────────────
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ahadu_celery
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: mysql+pymysql://ahadu_user:ahadu_pass@mysql:3306/ahadu_bank_eval
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    volumes:
+      - ml_models:/app/ml_models
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - ahadu_net
+
+  # ── Celery Beat (Scheduler) ────────────────────────────────────────
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ahadu_celery_beat
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    environment:
+      DATABASE_URL: mysql+pymysql://ahadu_user:ahadu_pass@mysql:3306/ahadu_bank_eval
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    volumes:
+      - ml_models:/app/ml_models
+      - celery_beat_data:/app/celerybeat-schedule
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - ahadu_net
+
+  # ── Frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ahadu_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - ahadu_net
+
+  # ── Nginx ─────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: ahadu_nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - ahadu_net
+
+volumes:
+  mysql_data:
+  redis_data:
+  ml_models:
+  celery_beat_data:
+
+networks:
+  ahadu_net:
+    driver: bridge

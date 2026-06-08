@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+*.db
+
+# Node
+node_modules/
+.next/
+.nuxt/
+dist/
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# ML Models (large binaries - store in artifact storage)
+backend/ml_models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (local dev)
+mysql_data/
+redis_data/
+
+# SSL certs (never commit)
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
