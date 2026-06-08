@@ -16,39 +16,80 @@ router = APIRouter(prefix="/upload", tags=["Upload"])
 
 
 def _save_channel_metrics(db, dataset_id: int, processed_file: str):
-    """Persist engineered features into the channel_metrics table."""
+    """Persist engineered features into the channel_metrics table.
+    Supports both new and legacy dataset formats."""
     try:
         df = pd.read_csv(processed_file)
-        if "product_id" not in df.columns or "metric_date" not in df.columns:
+        if "product_id" not in df.columns:
             return
 
-        # Remove existing metrics for this dataset to avoid duplicates on reprocess
+        # Normalise column names
+        df.columns = [c.strip().lower() for c in df.columns]
+
+        # Determine date column
+        is_new = "monthly_txn_count" in df.columns or "eval_period" in df.columns
+
         db.query(models.ChannelMetric).filter(
             models.ChannelMetric.dataset_id == dataset_id
-        ).delete()
-
-        metric_cols = [
-            "total_users", "active_users", "transaction_count", "transaction_value",
-            "revenue", "failed_transactions", "complaints", "downtime_minutes",
-            "fraud_incidents", "user_growth_rate", "transaction_growth_rate",
-            "revenue_growth_rate", "failure_rate", "complaints_per_1000_users",
-            "uptime_percentage", "active_user_ratio", "retention_rate",
-            "revenue_per_user", "transaction_value_per_user",
-            "transaction_volume_7d_avg", "revenue_7d_avg", "fraud_rate",
-            "operational_risk_score",
-        ]
+        ).delete(synchronize_session=False)
 
         records = []
         for _, row in df.iterrows():
             kwargs = {"dataset_id": dataset_id, "product_id": str(row["product_id"])}
-            try:
-                kwargs["metric_date"] = pd.to_datetime(row["metric_date"])
-            except Exception:
-                continue
-            for col in metric_cols:
-                if col in df.columns:
-                    val = row[col]
-                    kwargs[col] = float(val) if pd.notna(val) else None
+
+            # Resolve metric_date
+            if is_new and "eval_year" in df.columns and "eval_month" in df.columns:
+                try:
+                    kwargs["metric_date"] = pd.Timestamp(
+                        year=int(row["eval_year"]),
+                        month=int(row["eval_month"]),
+                        day=1
+                    )
+                except Exception:
+                    continue
+            elif "metric_date" in df.columns:
+                try:
+                    kwargs["metric_date"] = pd.to_datetime(row["metric_date"])
+                except Exception:
+                    continue
+            else:
+                continue  # no date — skip
+
+            def _f(col):
+                v = row.get(col)
+                return float(v) if v is not None and pd.notna(v) else None
+
+            if is_new:
+                # New format: map to legacy column names where possible
+                kwargs.update({
+                    "total_users":         _f("total_users"),
+                    "active_users":        _f("active_users"),
+                    "transaction_count":   _f("monthly_txn_count"),
+                    "transaction_value":   _f("txn_value_etb"),
+                    "revenue":             _f("revenue_etb"),
+                    "complaints":          _f("complaint_volume"),
+                    "downtime_minutes":    _f("downtime_minutes"),
+                    # Engineered
+                    "active_user_ratio":   _f("active_user_rate"),
+                    "revenue_per_user":    _f("revenue_per_active_user"),
+                    "user_growth_rate":    _f("user_growth_rate"),
+                    "revenue_growth_rate": _f("revenue_growth_rate"),
+                    "operational_risk_score": _f("downtime_impact_score"),
+                })
+            else:
+                legacy_cols = [
+                    "total_users", "active_users", "transaction_count", "transaction_value",
+                    "revenue", "failed_transactions", "complaints", "downtime_minutes",
+                    "fraud_incidents", "user_growth_rate", "transaction_growth_rate",
+                    "revenue_growth_rate", "failure_rate", "complaints_per_1000_users",
+                    "uptime_percentage", "active_user_ratio", "retention_rate",
+                    "revenue_per_user", "transaction_value_per_user",
+                    "transaction_volume_7d_avg", "revenue_7d_avg", "fraud_rate",
+                    "operational_risk_score",
+                ]
+                for col in legacy_cols:
+                    kwargs[col] = _f(col)
+
             records.append(models.ChannelMetric(**kwargs))
 
         db.bulk_save_objects(records)
@@ -236,7 +277,7 @@ def scan_folder(db: Session = Depends(get_db),
             results.append({"file": file_path.name, "action": "processed", "status": "success"})
         else:
             db_dataset.status = models.UploadStatus.failed
-            db_dataset.error_message = str(result.get("validation", {}).get("errors"))
+            db_dataset.error_message = str(result.get("validation", {}).get("errors") or "Processing failed")
             db.commit()
             results.append({"file": file_path.name, "action": "processed", "status": "failed"})
 

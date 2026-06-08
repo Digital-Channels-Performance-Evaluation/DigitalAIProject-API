@@ -2,36 +2,49 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Grid, Box, Paper, Typography, List, ListItem, ListItemText,
-  Skeleton, Divider, Button, LinearProgress,
+  Skeleton, Divider, Button, LinearProgress, useTheme,
+  Collapse, IconButton, Chip,
 } from '@mui/material';
-import StorageIcon from '@mui/icons-material/Storage';
-import PsychologyIcon from '@mui/icons-material/Psychology';
-import InsightsIcon from '@mui/icons-material/Insights';
-import DevicesIcon from '@mui/icons-material/Devices';
-import LeaderboardIcon from '@mui/icons-material/Leaderboard';
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
+import StorageIcon             from '@mui/icons-material/Storage';
+import PsychologyIcon          from '@mui/icons-material/Psychology';
+import InsightsIcon            from '@mui/icons-material/Insights';
+import DevicesIcon             from '@mui/icons-material/Devices';
+import LeaderboardIcon         from '@mui/icons-material/Leaderboard';
+import ArrowForwardIcon        from '@mui/icons-material/ArrowForward';
+import TrendingUpIcon          from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon        from '@mui/icons-material/TrendingDown';
+import TrendingFlatIcon        from '@mui/icons-material/TrendingFlat';
+import WarningAmberIcon        from '@mui/icons-material/WarningAmber';
+import CloseIcon               from '@mui/icons-material/Close';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
 } from 'recharts';
-import StatCard from '../components/common/StatCard';
+import StatCard    from '../components/common/StatCard';
 import StatusBadge from '../components/common/StatusBadge';
+import { useAlerts } from '../context/AlertContext';
 import { getKPIs, getPredictionDistribution, getModelComparison, getRecentActivity, getChannelRanking } from '../api/endpoints';
 
 const TIER_COLORS = {
-  Excellent: '#10b981',
-  Good: '#6366f1',
-  Average: '#f59e0b',
-  Poor: '#ef4444',
+  High:   '#10b981',
+  Medium: '#f59e0b',
+  Low:    '#ef4444',
 };
 
 const MEDAL = ['🥇', '🥈', '🥉'];
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const theme    = useTheme();
+  const isDark   = theme.palette.mode === 'dark';
+  const { updateAlerts } = useAlerts();
+  const tickColor    = theme.palette.text.secondary;
+  const tooltipBg    = theme.palette.background.paper;
+  const tooltipBorder = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.12)';
+  const gridColor    = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+  const progressTrack = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+
   const [kpis, setKpis] = useState(null);
   const [distribution, setDistribution] = useState([]);
   const [modelComparison, setModelComparison] = useState([]);
@@ -54,6 +67,7 @@ export default function Dashboard() {
         setModelComparison(modRes.data);
         setActivity(actRes.data);
         setRanking(rankRes.data || []);
+        updateAlerts(rankRes.data || []);
       } catch {
         // ignore
       } finally {
@@ -65,8 +79,11 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  const { alerts, totalCount } = useAlerts();
+
   return (
     <Box>
+
       {/* KPI Cards */}
       <Grid container spacing={2.5} sx={{ mb: 3 }}>
         {[
@@ -145,8 +162,8 @@ export default function Dashboard() {
                     ))}
                   </Pie>
                   <RTooltip
-                    contentStyle={{ background: '#1a1d27', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
-                    labelStyle={{ color: '#e2e8f0' }}
+                    contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8 }}
+                    labelStyle={{ color: theme.palette.text.primary }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -169,25 +186,24 @@ export default function Dashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={modelComparison} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                   <XAxis
                     dataKey="model_type"
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
+                    tick={{ fill: tickColor, fontSize: 12 }}
+                    axisLine={false} tickLine={false}
                   />
                   <YAxis
                     domain={[0, 1]}
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
+                    tick={{ fill: tickColor, fontSize: 12 }}
+                    axisLine={false} tickLine={false}
                     tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
                   />
                   <RTooltip
-                    contentStyle={{ background: '#1a1d27', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
+                    contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8 }}
+                    itemStyle={{ color: theme.palette.text.primary }}
                     formatter={(v) => `${(v * 100).toFixed(1)}%`}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: tickColor }} />
                   <Bar dataKey="accuracy" name="Accuracy" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="f1_score" name="F1 Score" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -255,7 +271,7 @@ export default function Dashboard() {
                           value={ch.score}
                           sx={{
                             flexGrow: 1, height: 6, borderRadius: 3,
-                            bgcolor: 'rgba(255,255,255,0.06)',
+                            bgcolor: progressTrack,
                             '& .MuiLinearProgress-bar': {
                               bgcolor: TIER_COLORS[ch.performance_tier],
                               borderRadius: 3,

@@ -18,9 +18,13 @@ from app import models
 
 router = APIRouter(prefix="/report", tags=["Smart Report"])
 
-TIER_SCORE  = {"Excellent": 100, "Good": 75, "Average": 45, "Poor": 15}
-TIER_ORDER  = {"Excellent": 1,   "Good": 2,  "Average": 3,  "Poor": 4}
-TIER_EMOJI  = {"Excellent": "🟢", "Good": "🔵", "Average": "🟡", "Poor": "🔴"}
+TIER_SCORE  = {"High": 100, "Medium": 60, "Low": 20,
+               "Excellent": 100, "Good": 75, "Average": 45, "Poor": 15}
+TIER_ORDER  = {"High": 1, "Medium": 2, "Low": 3,
+               "Excellent": 1, "Good": 2, "Average": 3, "Poor": 4}
+TIER_EMOJI  = {"High": "🟢", "Medium": "🟡", "Low": "🔴",
+               "Excellent": "🟢", "Good": "🔵", "Average": "🟡", "Poor": "🔴"}
+TIERS       = ["High", "Medium", "Low"]
 
 
 def _build_report_data(model_id: Optional[int], db: Session) -> dict:
@@ -58,18 +62,33 @@ def _build_report_data(model_id: Optional[int], db: Session) -> dict:
         labels = [p.prediction_label for p in ps if p.prediction_label]
         if not labels:
             continue
-        counter   = Counter(labels)
-        top_tier  = counter.most_common(1)[0][0]
-        scores    = [TIER_SCORE.get(l, 0) for l in labels]
-        avg_score = sum(scores) / len(scores)
-        confs     = [p.confidence for p in ps if p.confidence]
-        avg_conf  = sum(confs) / len(confs) if confs else 0
+        counter  = Counter(labels)
+        confs    = [p.confidence for p in ps if p.confidence]
+        avg_conf = sum(confs) / len(confs) if confs else 0
+
+        # Use actual performance_score (predicted_value) when available
+        actual_scores = [p.predicted_value for p in ps
+                         if p.predicted_value is not None and p.predicted_value > 20]
+        if actual_scores:
+            scores    = actual_scores
+            avg_score = sum(scores) / len(scores)
+        else:
+            scores    = [TIER_SCORE.get(l, 0) for l in labels]
+            avg_score = sum(scores) / len(scores)
+
+        # Derive tier from score using business rules: >=80 High, >=50 Medium, <50 Low
+        if avg_score >= 80:
+            top_tier = "High"
+        elif avg_score >= 50:
+            top_tier = "Medium"
+        else:
+            top_tier = "Low"
 
         mid = len(scores) // 2
         trend = 0
         if mid > 0:
             diff = (sum(scores[mid:]) / (len(scores) - mid)) - (sum(scores[:mid]) / mid)
-            trend = 1 if diff > 5 else (-1 if diff < -5 else 0)
+            trend = 1 if diff > 2 else (-1 if diff < -2 else 0)
 
         channels.append({
             "product_id":   pid,
@@ -92,8 +111,6 @@ def _build_report_data(model_id: Optional[int], db: Session) -> dict:
     total     = len(channels)
     avg_score = sum(c["score"] for c in channels) / total if total else 0
 
-    excellent = [c for c in channels if c["tier"] == "Excellent"]
-    poor      = [c for c in channels if c["tier"] == "Poor"]
     improving = [c for c in channels if c["trend"] == 1]
     declining = [c for c in channels if c["trend"] == -1]
 
@@ -111,10 +128,15 @@ def _build_report_data(model_id: Optional[int], db: Session) -> dict:
             "total_predictions": len(preds),
             "avg_score":         round(avg_score, 1),
             "tier_distribution": dict(tier_dist),
-            "excellent_count":   tier_dist.get("Excellent", 0),
-            "good_count":        tier_dist.get("Good",      0),
-            "average_count":     tier_dist.get("Average",   0),
-            "poor_count":        tier_dist.get("Poor",      0),
+            # Production tiers
+            "high_count":        tier_dist.get("High",    0),
+            "medium_count":      tier_dist.get("Medium",  0),
+            "low_count":         tier_dist.get("Low",     0),
+            # Legacy compat keys (frontend uses these)
+            "excellent_count":   tier_dist.get("High",    0),
+            "good_count":        tier_dist.get("Medium",  0),
+            "average_count":     tier_dist.get("Medium",  0),
+            "poor_count":        tier_dist.get("Low",     0),
             "improving_count":   len(improving),
             "declining_count":   len(declining),
         },
@@ -135,12 +157,12 @@ def _narrative(data: dict) -> str:
     imp = data["improving"]
     dec = data["declining"]
 
-    total   = s["total_channels"]
-    avg     = s["avg_score"]
-    exc_pct = round(s["excellent_count"] / total * 100) if total else 0
-    poor_pct= round(s["poor_count"]      / total * 100) if total else 0
+    total    = s["total_channels"]
+    avg      = s["avg_score"]
+    high_pct = round(s["high_count"]   / total * 100) if total else 0
+    low_pct  = round(s["low_count"]    / total * 100) if total else 0
 
-    health = "strong" if avg >= 70 else ("moderate" if avg >= 50 else "concerning")
+    health = "strong" if avg >= 75 else ("moderate" if avg >= 50 else "concerning")
 
     lines = [
         f"## Executive Summary",
@@ -149,84 +171,60 @@ def _narrative(data: dict) -> str:
         f"**{m['name']}** model (accuracy: {round((m['accuracy'] or 0)*100, 1)}%). "
         f"The overall portfolio health is **{health}** with an average performance score of **{avg}/100**.",
         f"",
-        f"- **{s['excellent_count']} channels ({exc_pct}%)** are performing at Excellent tier",
-        f"- **{s['good_count']} channels** are at Good tier",
-        f"- **{s['average_count']} channels** need attention (Average tier)",
-        f"- **{s['poor_count']} channels ({poor_pct}%)** are at Poor tier and require immediate action",
+        f"- **{s['high_count']} channels ({high_pct}%)** are performing at High tier (score ≥ 80)",
+        f"- **{s['medium_count']} channels** are at Medium tier (score 50–79)",
+        f"- **{s['low_count']} channels ({low_pct}%)** are at Low tier (score < 50) and require immediate action",
         f"",
     ]
 
     if top:
-        lines += [
-            f"## 🏆 Top Performing Channels",
-            f"",
-        ]
+        lines += [f"## 🏆 Top Performing Channels", f""]
         for c in top:
             trend_txt = "↑ improving" if c["trend"] == 1 else ("↓ declining" if c["trend"] == -1 else "→ stable")
             lines.append(
                 f"**{c['rank']}. {c['product_id']}** — Score: {c['score']}/100 | "
-                f"Tier: {TIER_EMOJI[c['tier']]} {c['tier']} | Confidence: {c['confidence']}% | {trend_txt}"
+                f"Tier: {TIER_EMOJI.get(c['tier'], '')} {c['tier']} | Confidence: {c['confidence']}% | {trend_txt}"
             )
         lines.append("")
 
     if bot:
-        lines += [
-            f"## ⚠️ Channels Requiring Attention",
-            f"",
-        ]
+        lines += [f"## ⚠️ Channels Requiring Attention", f""]
         for c in bot:
             trend_txt = "↑ improving" if c["trend"] == 1 else ("↓ declining" if c["trend"] == -1 else "→ stable")
             lines.append(
                 f"**{c['product_id']}** — Score: {c['score']}/100 | "
-                f"Tier: {TIER_EMOJI[c['tier']]} {c['tier']} | Confidence: {c['confidence']}% | {trend_txt}"
+                f"Tier: {TIER_EMOJI.get(c['tier'], '')} {c['tier']} | Confidence: {c['confidence']}% | {trend_txt}"
             )
         lines.append("")
 
     if imp:
-        lines += [
-            f"## 📈 Improving Channels",
-            f"",
-            f"The following channels show a positive performance trend:",
-            f"",
-        ]
+        lines += [f"## 📈 Improving Channels", f"",
+                  f"The following channels show a positive performance trend:", f""]
         for c in imp:
             lines.append(f"- **{c['product_id']}** (Score: {c['score']}, Tier: {c['tier']})")
         lines.append("")
 
     if dec:
-        lines += [
-            f"## 📉 Declining Channels",
-            f"",
-            f"The following channels show a negative performance trend and need investigation:",
-            f"",
-        ]
+        lines += [f"## 📉 Declining Channels", f"",
+                  f"The following channels show a negative performance trend:", f""]
         for c in dec:
             lines.append(f"- **{c['product_id']}** (Score: {c['score']}, Tier: {c['tier']})")
         lines.append("")
 
-    lines += [
-        f"## 📋 Recommendations",
-        f"",
-    ]
-    if s["poor_count"] > 0:
-        poor_names = ", ".join(c["product_id"] for c in data["channels"] if c["tier"] == "Poor")
-        lines.append(f"1. **Immediate action required** for Poor-tier channels: {poor_names}. "
-                     f"Investigate failure rates, downtime, and fraud incidents.")
+    lines += [f"## 📋 Recommendations", f""]
+    if s["low_count"] > 0:
+        low_names = ", ".join(c["product_id"] for c in data["channels"] if c["tier"] == "Low")
+        lines.append(f"1. **Immediate action required** for Low-tier channels: {low_names}.")
     if s["declining_count"] > 0:
-        lines.append(f"2. **Monitor declining channels** closely — {s['declining_count']} channel(s) "
-                     f"show a downward trend. Review recent operational changes.")
+        lines.append(f"2. **Monitor declining channels** — {s['declining_count']} channel(s) show a downward trend.")
     if s["improving_count"] > 0:
-        lines.append(f"3. **Replicate success patterns** from {s['improving_count']} improving channel(s) "
-                     f"across the portfolio.")
-    if exc_pct < 30:
-        lines.append(f"4. **Portfolio improvement needed** — only {exc_pct}% of channels are Excellent. "
-                     f"Target: raise Average-tier channels to Good through operational improvements.")
-    lines += [
-        f"",
-        f"---",
-        f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} "
-        f"by DigitalPerf ML Evaluation Platform*",
-    ]
+        lines.append(f"3. **Replicate success** from {s['improving_count']} improving channel(s).")
+    if high_pct < 40:
+        lines.append(f"4. **Portfolio improvement needed** — only {high_pct}% of channels are High. "
+                     f"Target: raise Medium-tier channels through operational improvements.")
+    lines += [f"", f"---",
+              f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} "
+              f"by DigitalPerf ML Evaluation Platform*"]
 
     return "\n".join(lines)
 

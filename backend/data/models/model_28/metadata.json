@@ -1,0 +1,99 @@
+{
+  "model_type": "xgboost",
+  "training_date": "20260605_120645",
+  "model_name": "model_28",
+  "accuracy": 0.3636,
+  "precision": 0.4242,
+  "recall": 0.3636,
+  "f1_score": 0.3916,
+  "cross_validation_mean": 0.3812,
+  "cross_validation_std": 0.0164,
+  "feature_importance": {
+    "revenue_per_user": 0.1442459523677826,
+    "operational_efficiency_score": 0.09448108077049255,
+    "revenue_per_txn": 0.08676733076572418,
+    "complaint_growth_rate": 0.08136244863271713,
+    "revenue_per_active_user": 0.0756230279803276,
+    "txn_growth_rate": 0.06780989468097687,
+    "downtime_impact_score": 0.0643383339047432,
+    "revenue_3m_avg": 0.06349325180053711,
+    "active_user_rate": 0.059491854161024094,
+    "user_growth_rate": 0.050987523049116135,
+    "churn_rate": 0.049345530569553375,
+    "complaint_resolution_rate": 0.04528064653277397,
+    "revenue_growth_rate": 0.04416793957352638,
+    "new_user_rate": 0.03750426694750786,
+    "txn_volume_3m_avg": 0.035100992769002914
+  },
+  "classification_report": {
+    "High": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 2.0
+    },
+    "Low": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 2.0
+    },
+    "Medium": {
+      "precision": 0.6666666666666666,
+      "recall": 0.5714285714285714,
+      "f1-score": 0.6153846153846154,
+      "support": 7.0
+    },
+    "accuracy": 0.36363636363636365,
+    "macro avg": {
+      "precision": 0.2222222222222222,
+      "recall": 0.19047619047619047,
+      "f1-score": 0.20512820512820515,
+      "support": 11.0
+    },
+    "weighted avg": {
+      "precision": 0.4242424242424242,
+      "recall": 0.36363636363636365,
+      "f1-score": 0.39160839160839167,
+      "support": 11.0
+    }
+  },
+  "classes": [
+    "High",
+    "Low",
+    "Medium"
+  ],
+  "feature_columns": [
+    "active_user_rate",
+    "revenue_per_txn",
+    "revenue_per_active_user",
+    "downtime_impact_score",
+    "operational_efficiency_score",
+    "complaint_growth_rate",
+    "complaint_resolution_rate",
+    "user_growth_rate",
+    "txn_growth_rate",
+    "revenue_growth_rate",
+    "churn_rate",
+    "new_user_rate",
+    "revenue_per_user",
+    "txn_volume_3m_avg",
+    "revenue_3m_avg"
+  ],
+  "n_samples": 84,
+  "n_features": 15,
+  "train_samples": 73,
+  "test_samples": 11,
+  "test_size_ratio": 0.13095238095238096,
+  "used_time_split": true,
+  "model_parameters": {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "subsample": 0.9,
+    "eval_metric": "mlogloss",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "class_weights": {
+    

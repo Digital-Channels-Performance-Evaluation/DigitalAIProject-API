@@ -178,14 +178,13 @@ export default function ModelTraining() {
             <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
               Target: Performance Tier
             </Typography>
-            {['Excellent', 'Good', 'Average', 'Poor'].map((tier) => (
+            {['High', 'Medium', 'Low'].map((tier) => (
               <Box key={tier} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
                 <StatusBadge status={tier} />
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  {tier === 'Excellent' && 'Score ≥ 75% — top performing channel'}
-                  {tier === 'Good' && 'Score 55–75% — healthy channel'}
-                  {tier === 'Average' && 'Score 35–55% — needs attention'}
-                  {tier === 'Poor' && 'Score < 35% — critical issues'}
+                  {tier === 'High'   && 'Score ≥ 80 — top performing channel'}
+                  {tier === 'Medium' && 'Score 50–79 — healthy, monitor for improvement'}
+                  {tier === 'Low'    && 'Score < 50 — critical, immediate action required'}
                 </Typography>
               </Box>
             ))}

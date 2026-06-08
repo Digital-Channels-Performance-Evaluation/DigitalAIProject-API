@@ -4,6 +4,7 @@ import { CircularProgress, Box } from '@mui/material';
 import { AppThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { AlertProvider } from './context/AlertContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -67,7 +68,9 @@ export default function App() {
     <AppThemeProvider>
       <AuthProvider>
         <ToastProvider>
-          <AppRoutes />
+          <AlertProvider>
+            <AppRoutes />
+          </AlertProvider>
         </ToastProvider>
       </AuthProvider>
     </AppThemeProvider>

@@ -4,19 +4,19 @@ import {
   Box, List, ListItemButton, ListItemIcon, ListItemText,
   Typography, Divider, Avatar, Tooltip, IconButton,
 } from '@mui/material';
-import DashboardIcon    from '@mui/icons-material/Dashboard';
-import StorageIcon      from '@mui/icons-material/Storage';
-import PsychologyIcon   from '@mui/icons-material/Psychology';
-import InsightsIcon     from '@mui/icons-material/Insights';
-import ShowChartIcon    from '@mui/icons-material/ShowChart';
-import PeopleIcon       from '@mui/icons-material/People';
-import LeaderboardIcon  from '@mui/icons-material/Leaderboard';
-import BarChartIcon     from '@mui/icons-material/BarChart';
-import AssessmentIcon   from '@mui/icons-material/Assessment';
-import HistoryIcon      from '@mui/icons-material/History';
-import LogoutIcon       from '@mui/icons-material/Logout';
+import DashboardIcon     from '@mui/icons-material/Dashboard';
+import StorageIcon       from '@mui/icons-material/Storage';
+import PsychologyIcon    from '@mui/icons-material/Psychology';
+import InsightsIcon      from '@mui/icons-material/Insights';
+import ShowChartIcon     from '@mui/icons-material/ShowChart';
+import PeopleIcon        from '@mui/icons-material/People';
+import LeaderboardIcon   from '@mui/icons-material/Leaderboard';
+import BarChartIcon      from '@mui/icons-material/BarChart';
+import AssessmentIcon    from '@mui/icons-material/Assessment';
+import HistoryIcon       from '@mui/icons-material/History';
+import LogoutIcon        from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import { useAuth }      from '../../context/AuthContext';
+import { useAuth }   from '../../context/AuthContext';
 
 const ROLE_COLORS = { admin: '#ef4444', analyst: '#6366f1', viewer: '#94a3b8' };
 
@@ -25,22 +25,22 @@ const NAV_ITEMS = [
   { label: 'Data Management', icon: <StorageIcon     />, path: '/data'        },
   { label: 'Model Training',  icon: <PsychologyIcon  />, path: '/models'      },
   { label: 'Predictions',     icon: <InsightsIcon    />, path: '/predictions' },
-  { label: 'Channel Ranking', icon: <LeaderboardIcon />, path: '/ranking'     },
+  { label: 'Channel Ranking', icon: <LeaderboardIcon />, path: '/ranking', alertKey: true },
   { label: 'Analytics',       icon: <BarChartIcon    />, path: '/analytics'   },
   { label: 'Smart Report',    icon: <AssessmentIcon  />, path: '/report'      },
 ];
 
 const ADMIN_ITEMS = [
-  { label: 'User Management', icon: <PeopleIcon   />, path: '/users' },
-  { label: 'Audit Log',       icon: <HistoryIcon  />, path: '/audit' },
+  { label: 'User Management', icon: <PeopleIcon  />, path: '/users' },
+  { label: 'Audit Log',       icon: <HistoryIcon />, path: '/audit' },
 ];
 
 export default function Sidebar({ onClose }) {
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
 
-  const handleNav = (path) => { navigate(path); onClose?.(); };
+  const handleNav    = (path) => { navigate(path); onClose?.(); };
   const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
 
   const NavItem = ({ item }) => {
@@ -66,7 +66,9 @@ export default function Sidebar({ onClose }) {
           primary={item.label}
           primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: active ? 600 : 400 }}
         />
-        {active && <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'primary.light' }} />}
+        {active && (
+          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'primary.light' }} />
+        )}
       </ListItemButton>
     );
   };
@@ -106,7 +108,6 @@ export default function Sidebar({ onClose }) {
       <List sx={{ px: 1.5, py: 1.5, flexGrow: 1, overflow: 'auto' }}>
         {NAV_ITEMS.map(item => <NavItem key={item.path} item={item} />)}
 
-        {/* Admin-only section */}
         {user?.role === 'admin' && (
           <>
             <Divider sx={{ my: 1.5 }} />
@@ -128,14 +129,15 @@ export default function Sidebar({ onClose }) {
       <Box sx={{ p: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Avatar
+            src={user?.avatar_url ? `http://localhost:8000${user.avatar_url}` : undefined}
             onClick={() => handleNav('/profile')}
             sx={{
               width: 32, height: 32, fontSize: '0.72rem', fontWeight: 700,
               bgcolor: 'rgba(99,102,241,0.2)', color: 'primary.light',
-              cursor: 'pointer', '&:hover': { bgcolor: 'rgba(99,102,241,0.35)' },
+              cursor: 'pointer', '&:hover': { opacity: 0.85 },
             }}
           >
-            {user?.full_name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+            {!user?.avatar_url && user?.full_name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
           </Avatar>
           <Box sx={{ flexGrow: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => handleNav('/profile')}>
             <Typography variant="caption" sx={{ color: 'text.primary', display: 'block', fontWeight: 600, fontSize: '0.78rem' }} noWrap>

@@ -4,7 +4,7 @@ import {
   InputLabel, CircularProgress, TextField, InputAdornment,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, Tooltip, LinearProgress, ToggleButtonGroup, ToggleButton,
-  Divider,
+  Divider, useTheme,
 } from '@mui/material';
 import SearchIcon        from '@mui/icons-material/Search';
 import TrendingUpIcon    from '@mui/icons-material/TrendingUp';
@@ -22,16 +22,41 @@ import SectionHeader from '../components/common/SectionHeader';
 import StatusBadge   from '../components/common/StatusBadge';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const TIER_COLORS  = { Excellent: '#10b981', Good: '#6366f1', Average: '#f59e0b', Poor: '#ef4444' };
-const TIER_ORDER   = { Excellent: 1, Good: 2, Average: 3, Poor: 4 };
+const TIER_COLORS  = { High: '#10b981', Medium: '#f59e0b', Low: '#ef4444' };
+const TIER_ORDER   = { High: 1, Medium: 2, Low: 3 };
 const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
 const RANK_BG = {
-  Excellent: 'rgba(16,185,129,0.06)',
-  Good:      'rgba(99,102,241,0.06)',
-  Average:   'rgba(245,158,11,0.06)',
-  Poor:      'rgba(239,68,68,0.06)',
+  High:   'rgba(16,185,129,0.06)',
+  Medium: 'rgba(245,158,11,0.06)',
+  Low:    'rgba(239,68,68,0.06)',
 };
+
+// ── Per-channel distinct colors ───────────────────────────────────────────────
+const CHANNEL_PALETTE = [
+  '#6366f1', // indigo
+  '#06b6d4', // cyan
+  '#10b981', // emerald
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#14b8a6', // teal
+  '#f97316', // orange
+  '#a3e635', // lime
+  '#0ea5e9', // sky
+  '#d946ef', // fuchsia
+];
+
+// Deterministic colour per product_id (consistent across renders)
+function channelColor(productId, index) {
+  if (!productId) return CHANNEL_PALETTE[index % CHANNEL_PALETTE.length];
+  let hash = 0;
+  for (let i = 0; i < productId.length; i++) {
+    hash = productId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return CHANNEL_PALETTE[Math.abs(hash) % CHANNEL_PALETTE.length];
+}
 
 function TrendIcon({ trend }) {
   if (trend === 1)  return <TrendingUpIcon   sx={{ fontSize: 16, color: 'success.main' }} />;
@@ -59,7 +84,11 @@ function MedalBadge({ rank }) {
   );
 }
 
-function ScoreBar({ score, tier }) {
+function ScoreBar({ score, tier, productId, index }) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+  const progressTrack = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+  const color = channelColor(productId, index);
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
       <LinearProgress
@@ -67,14 +96,14 @@ function ScoreBar({ score, tier }) {
         value={score}
         sx={{
           flexGrow: 1, height: 8, borderRadius: 4,
-          bgcolor: 'rgba(255,255,255,0.06)',
+          bgcolor: progressTrack,
           '& .MuiLinearProgress-bar': {
-            bgcolor: TIER_COLORS[tier] || '#6366f1',
+            bgcolor: color,
             borderRadius: 4,
           },
         }}
       />
-      <Typography variant="caption" sx={{ fontWeight: 700, color: TIER_COLORS[tier], minWidth: 32 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, color, minWidth: 32 }}>
         {score}
       </Typography>
     </Box>
@@ -86,8 +115,7 @@ function TierBreakdownMini({ breakdown }) {
   if (!total) return null;
   return (
     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-      {['Excellent', 'Good', 'Average', 'Poor'].map(t => {
-        const pct = Math.round((breakdown[t] / total) * 100);
+      {['High', 'Medium', 'Low'].map(t => {        const pct = Math.round((breakdown[t] / total) * 100);
         if (!pct) return null;
         return (
           <Tooltip key={t} title={`${t}: ${breakdown[t]} (${pct}%)`}>
@@ -104,6 +132,10 @@ function TierBreakdownMini({ breakdown }) {
 
 // ── Top-3 Podium ──────────────────────────────────────────────────────────────
 function Podium({ channels }) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+  const podiumBase = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
   if (channels.length < 1) return null;
   const order = [1, 0, 2].map(i => channels[i]).filter(Boolean); // 2nd, 1st, 3rd
 
@@ -112,7 +144,9 @@ function Podium({ channels }) {
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 2, py: 2 }}>
-      {order.map((ch, i) => (
+      {order.map((ch, i) => {
+        const color = channelColor(ch.product_id, i);
+        return (
         <Box key={ch.product_id} sx={{ textAlign: 'center', minWidth: 100 }}>
           {i === 1 && (
             <EmojiEventsIcon sx={{ fontSize: 32, color: '#FFD700', mb: 0.5 }} />
@@ -124,24 +158,24 @@ function Podium({ channels }) {
             label={ch.performance_tier}
             size="small"
             sx={{
-              bgcolor: TIER_COLORS[ch.performance_tier] + '22',
-              color: TIER_COLORS[ch.performance_tier],
+              bgcolor: color + '22',
+              color: color,
               fontWeight: 700, fontSize: '0.65rem', mb: 0.5,
             }}
           />
           <Box sx={{
             height: heights[i],
-            bgcolor: TIER_COLORS[ch.performance_tier] + '30',
-            border: `2px solid ${TIER_COLORS[ch.performance_tier]}`,
+            bgcolor: color + '30',
+            border: `2px solid ${color}`,
             borderRadius: '8px 8px 0 0',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: TIER_COLORS[ch.performance_tier] }}>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color }}>
               {ch.score}
             </Typography>
           </Box>
           <Box sx={{
-            bgcolor: 'rgba(255,255,255,0.06)', py: 0.5,
+            bgcolor: podiumBase, py: 0.5,
             borderRadius: '0 0 4px 4px',
           }}>
             <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
@@ -149,13 +183,22 @@ function Podium({ channels }) {
             </Typography>
           </Box>
         </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ChannelRanking() {
+  const theme     = useTheme();
+  const isDark    = theme.palette.mode === 'dark';
+  const tickColor      = theme.palette.text.secondary;
+  const tooltipBg      = theme.palette.background.paper;
+  const tooltipBorder  = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.12)';
+  const gridColor      = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.08)';
+  const chipInactive   = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+
   const [models,    setModels]    = useState([]);
   const [modelId,   setModelId]   = useState('');
   const [ranking,   setRanking]   = useState([]);
@@ -194,7 +237,7 @@ export default function ChannelRanking() {
 
   // Summary counts
   const tierCounts = useMemo(() => {
-    const c = { Excellent: 0, Good: 0, Average: 0, Poor: 0 };
+    const c = { High: 0, Medium: 0, Low: 0 };
     ranking.forEach(ch => { if (c[ch.performance_tier] !== undefined) c[ch.performance_tier]++; });
     return c;
   }, [ranking]);
@@ -233,7 +276,7 @@ export default function ChannelRanking() {
           </Grid>
           <Grid item xs={12} sm={5}>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              {['All', 'Excellent', 'Good', 'Average', 'Poor'].map(t => (
+              {['All', 'High', 'Medium', 'Low'].map(t => (
                 <Chip
                   key={t}
                   label={t === 'All' ? `All (${ranking.length})` : `${t} (${tierCounts[t] || 0})`}
@@ -245,7 +288,7 @@ export default function ChannelRanking() {
                     fontSize: '0.7rem',
                     bgcolor: tierFilter === t
                       ? (t === 'All' ? 'primary.dark' : TIER_COLORS[t] + '33')
-                      : 'rgba(255,255,255,0.05)',
+                      : chipInactive,
                     color: tierFilter === t
                       ? (t === 'All' ? 'primary.light' : TIER_COLORS[t])
                       : 'text.secondary',
@@ -295,27 +338,27 @@ export default function ChannelRanking() {
             </Paper>
 
             <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>Score Overview (Top 10)</Typography>
+              <Typography variant="h6" sx={{ mb: 2 }}>Score Overview (Top 7)</Typography>
               <ResponsiveContainer width="100%" height={ranking.slice(0,10).length * 38 + 20}>
                 <BarChart
                   data={barData}
                   layout="vertical"
                   margin={{ top: 0, right: 50, left: 10, bottom: 0 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
                   <XAxis type="number" domain={[0, 100]}
-                    tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis dataKey="name" type="category" width={130}
-                    tick={{ fill: '#e2e8f0', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    tick={{ fill: theme.palette.text.primary, fontSize: 11 }} axisLine={false} tickLine={false} />
                   <RTooltip
-                    contentStyle={{ background: '#1a1d27', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
+                    contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8 }}
                     formatter={(v, n, p) => [`${v} / 100`, 'Score']}
                   />
                   <Bar dataKey="score" radius={[0, 4, 4, 0]} maxBarSize={22}>
                     <LabelList dataKey="score" position="right"
-                      style={{ fill: '#94a3b8', fontSize: 11 }} />
-                    {barData.map(entry => (
-                      <Cell key={entry.name} fill={TIER_COLORS[entry.tier] || '#6366f1'} />
+                      style={{ fill: tickColor, fontSize: 11 }} />
+                    {barData.map((entry, idx) => (
+                      <Cell key={entry.name} fill={channelColor(entry.name, idx)} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -380,7 +423,8 @@ export default function ChannelRanking() {
                             <StatusBadge status={ch.performance_tier} />
                           </TableCell>
                           <TableCell sx={{ minWidth: 140 }}>
-                            <ScoreBar score={ch.score} tier={ch.performance_tier} />
+                            <ScoreBar score={ch.score} tier={ch.performance_tier}
+                              productId={ch.product_id} index={filtered.indexOf(ch)} />
                           </TableCell>
                           <TableCell>
                             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -403,7 +447,9 @@ export default function ChannelRanking() {
               ) : (
                 /* Cards view */
                 <Box sx={{ p: 2, display: 'flex', flexWrap: 'wrap', gap: 2, maxHeight: 600, overflow: 'auto' }}>
-                  {filtered.map(ch => (
+                  {filtered.map((ch, idx) => {
+                    const color = channelColor(ch.product_id, idx);
+                    return (
                     <Box
                       key={ch.product_id}
                       sx={{
@@ -411,8 +457,8 @@ export default function ChannelRanking() {
                         minWidth: 180,
                         p: 2,
                         borderRadius: 2,
-                        border: `1px solid ${TIER_COLORS[ch.performance_tier]}33`,
-                        bgcolor: RANK_BG[ch.performance_tier],
+                        border: `1px solid ${color}44`,
+                        bgcolor: color + '0a',
                         position: 'relative',
                       }}
                     >
@@ -420,18 +466,20 @@ export default function ChannelRanking() {
                         <MedalBadge rank={ch.rank} />
                         <TrendIcon trend={ch.trend} />
                       </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', mb: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', mb: 0.5, color }}>
                         {ch.product_id}
                       </Typography>
                       <StatusBadge status={ch.performance_tier} />
                       <Box sx={{ mt: 1.5 }}>
-                        <ScoreBar score={ch.score} tier={ch.performance_tier} />
+                        <ScoreBar score={ch.score} tier={ch.performance_tier}
+                          productId={ch.product_id} index={idx} />
                       </Box>
                       <Box sx={{ mt: 1 }}>
                         <TierBreakdownMini breakdown={ch.tier_breakdown} />
                       </Box>
                     </Box>
-                  ))}
+                    );
+                  })}
                 </Box>
               )}
             </Paper>

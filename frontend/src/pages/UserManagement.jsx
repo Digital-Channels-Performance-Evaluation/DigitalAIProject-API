@@ -176,8 +176,9 @@ export default function UserManagement() {
                             bgcolor: u.id === me?.id ? 'primary.dark' : 'rgba(99,102,241,0.2)',
                             color: 'primary.light',
                           }}
+                          src={u.avatar_url ? `http://localhost:8000${u.avatar_url}` : undefined}
                         >
-                          {initials(u.full_name)}
+                          {!u.avatar_url && initials(u.full_name)}
                         </Avatar>
                         <Box>
                           <Typography variant="body2" sx={{ fontWeight: 500 }}>

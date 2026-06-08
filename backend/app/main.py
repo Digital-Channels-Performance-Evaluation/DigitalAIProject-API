@@ -29,6 +29,18 @@ def _start_folder_watcher():
             def _handle(self, file_path: Path):
                 if file_path.suffix.lower() not in settings.ALLOWED_EXTENSIONS:
                     return
+                # Wait for the file to finish being written (retry up to 10s)
+                for attempt in range(10):
+                    try:
+                        with open(file_path, "rb"):
+                            pass
+                        break  # file is readable
+                    except (PermissionError, OSError):
+                        time.sleep(1)
+                else:
+                    logger.warning(f"Watcher: file still locked after 10s, skipping {file_path.name}")
+                    return
+
                 db = SessionLocal()
                 try:
                     existing = db.query(models.Dataset).filter(

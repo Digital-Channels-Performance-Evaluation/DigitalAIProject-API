@@ -2,6 +2,7 @@ import React from 'react';
 import { Chip } from '@mui/material';
 
 const STATUS_CONFIG = {
+  // Dataset / model statuses
   pending:    { label: 'Pending',    color: 'default'  },
   processing: { label: 'Processing', color: 'warning'  },
   completed:  { label: 'Completed',  color: 'success'  },
@@ -9,7 +10,13 @@ const STATUS_CONFIG = {
   training:   { label: 'Training',   color: 'warning'  },
   ready:      { label: 'Ready',      color: 'success'  },
   active:     { label: 'Active',     color: 'success'  },
-  // Performance tiers
+
+  // Production tiers: High / Medium / Low
+  High:       { label: 'High',       color: 'success'  },
+  Medium:     { label: 'Medium',     color: 'warning'  },
+  Low:        { label: 'Low',        color: 'error'    },
+
+  // Legacy tiers (backward compat)
   Excellent:  { label: 'Excellent',  color: 'success'  },
   Good:       { label: 'Good',       color: 'primary'  },
   Average:    { label: 'Average',    color: 'warning'  },
@@ -17,7 +24,7 @@ const STATUS_CONFIG = {
 };
 
 export default function StatusBadge({ status, size = 'small' }) {
-  const config = STATUS_CONFIG[status] || { label: status, color: 'default' };
+  const config = STATUS_CONFIG[status] || { label: status || '—', color: 'default' };
   return (
     <Chip
       label={config.label}
