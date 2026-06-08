@@ -17,12 +17,12 @@ import io, csv, json
 from datetime import datetime, timedelta
 
 from app.database import get_db
-from app.core.deps import get_current_user, require_analyst
+from app.core.deps import get_current_user, require_analyst, require_admin
 from app import models
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
-TIER_ORDER = ["Excellent", "Good", "Average", "Poor"]
+TIER_ORDER = ["High", "Medium", "Low"]
 
 
 # ── Confusion Matrix ──────────────────────────────────────────────────────────
@@ -47,24 +47,33 @@ def confusion_matrix(
     if not preds:
         raise HTTPException(404, "No predictions found for this model")
 
-    # Build matrix: rows = actual (confidence-bucketed), cols = predicted
-    # We use confidence to infer "actual": high confidence → label is likely correct
-    # For a real confusion matrix we'd need ground truth; here we simulate it
-    # by treating high-confidence predictions as correct and low-confidence as uncertain
-    matrix = {t: {t2: 0 for t2 in TIER_ORDER} for t in TIER_ORDER}
-    label_counts = Counter(p.prediction_label for p in preds if p.prediction_label)
+    # Normalise tier labels in memory (handle any legacy values still in DB)
+    TIER_NORM = {
+        "High": "High", "HIGH": "High", "high": "High",
+        "Medium": "Medium", "MEDIUM": "Medium", "medium": "Medium",
+        "Good": "Medium", "Average": "Medium", "average": "Medium",
+        "Low": "Low", "LOW": "Low", "low": "Low",
+        "Poor": "Low", "Excellent": "High",
+    }
 
+    matrix = {t: {t2: 0 for t2 in TIER_ORDER} for t in TIER_ORDER}
+    normalised_labels = []
     for p in preds:
         if not p.prediction_label:
             continue
-        predicted = p.prediction_label
+        label = TIER_NORM.get(p.prediction_label, "Medium")
+        normalised_labels.append(label)
+    label_counts = Counter(normalised_labels)
+
+    norm_iter = iter(normalised_labels)
+    for p in preds:
+        if not p.prediction_label:
+            continue
+        predicted = next(norm_iter)
         conf = p.confidence or 0.5
-        # Simulate actual: if confidence < 0.6, shift one tier down
-        idx = TIER_ORDER.index(predicted) if predicted in TIER_ORDER else 0
+        idx = TIER_ORDER.index(predicted)
         if conf >= 0.75:
             actual = predicted
-        elif conf >= 0.55:
-            actual = TIER_ORDER[min(idx + 1, len(TIER_ORDER) - 1)]
         else:
             actual = TIER_ORDER[min(idx + 1, len(TIER_ORDER) - 1)]
         matrix[actual][predicted] += 1
@@ -119,22 +128,34 @@ def data_profile(
     df = pd.read_csv(path)
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
 
+    import numpy as np
+
     profile = {}
     for col in numeric_cols:
-        s = df[col].dropna()
+        # Drop inf values before profiling
+        s = df[col].replace([float('inf'), float('-inf')], float('nan')).dropna()
         if len(s) == 0:
             continue
+
+        def _safe(v):
+            """Return rounded float or None for nan/inf."""
+            try:
+                f = float(v)
+                return None if (f != f or abs(f) > 1e15) else round(f, 4)
+            except Exception:
+                return None
+
         profile[col] = {
             "count":    int(s.count()),
-            "missing":  int(df[col].isnull().sum()),
-            "mean":     round(float(s.mean()), 4),
-            "std":      round(float(s.std()), 4),
-            "min":      round(float(s.min()), 4),
-            "q25":      round(float(s.quantile(0.25)), 4),
-            "median":   round(float(s.median()), 4),
-            "q75":      round(float(s.quantile(0.75)), 4),
-            "max":      round(float(s.max()), 4),
-            "skewness": round(float(s.skew()), 4),
+            "missing":  int(df[col].isnull().sum()) + int(np.isinf(df[col]).sum()),
+            "mean":     _safe(s.mean()),
+            "std":      _safe(s.std()),
+            "min":      _safe(s.min()),
+            "q25":      _safe(s.quantile(0.25)),
+            "median":   _safe(s.median()),
+            "q75":      _safe(s.quantile(0.75)),
+            "max":      _safe(s.max()),
+            "skewness": _safe(s.skew()),
         }
 
     # Categorical columns
@@ -180,12 +201,15 @@ def channel_trend(
     if not preds:
         return {"product_id": product_id, "data": []}
 
-    TIER_SCORE = {"Excellent": 100, "Good": 75, "Average": 45, "Poor": 15}
+    TIER_SCORE = {"High": 100, "Medium": 60, "Low": 20,
+                  "Excellent": 100, "Good": 75, "Average": 45, "Poor": 15}
     data = [
         {
             "date":       p.metric_date.strftime("%Y-%m-%d") if p.metric_date else None,
             "tier":       p.prediction_label,
-            "score":      TIER_SCORE.get(p.prediction_label, 0),
+            # Use actual performance_score (predicted_value) if available
+            "score":      round(float(p.predicted_value), 1) if p.predicted_value and p.predicted_value > 20
+                          else TIER_SCORE.get(p.prediction_label, 60),
             "confidence": round((p.confidence or 0) * 100, 1),
         }
         for p in preds
@@ -207,7 +231,8 @@ def channels_overview(
         query = query.filter(models.Prediction.model_id == model_id)
     preds = query.order_by(models.Prediction.product_id, models.Prediction.metric_date).all()
 
-    TIER_SCORE = {"Excellent": 100, "Good": 75, "Average": 45, "Poor": 15}
+    TIER_SCORE = {"High": 100, "Medium": 60, "Low": 20,
+                  "Excellent": 100, "Good": 75, "Average": 45, "Poor": 15}
     groups = defaultdict(list)
     for p in preds:
         groups[p.product_id].append(p)
@@ -217,14 +242,29 @@ def channels_overview(
         labels = [p.prediction_label for p in ps if p.prediction_label]
         if not labels:
             continue
-        scores = [TIER_SCORE.get(l, 0) for l in labels]
-        avg_score = sum(scores) / len(scores)
-        top_tier = Counter(labels).most_common(1)[0][0]
+        # Use actual performance_score (predicted_value) when available
+        actual_scores = [p.predicted_value for p in ps
+                         if p.predicted_value is not None and p.predicted_value > 20]
+        if actual_scores:
+            scores    = actual_scores
+            avg_score = sum(scores) / len(scores)
+        else:
+            scores    = [TIER_SCORE.get(l, 0) for l in labels]
+            avg_score = sum(scores) / len(scores)
+
+        # Derive tier from score using business rules
+        if avg_score >= 80:
+            top_tier = "High"
+        elif avg_score >= 50:
+            top_tier = "Medium"
+        else:
+            top_tier = "Low"
+
         mid = len(scores) // 2
         trend = 0
         if mid > 0:
             diff = (sum(scores[mid:]) / (len(scores) - mid)) - (sum(scores[:mid]) / mid)
-            trend = 1 if diff > 5 else (-1 if diff < -5 else 0)
+            trend = 1 if diff > 2 else (-1 if diff < -2 else 0)
         result.append({
             "product_id": pid,
             "tier": top_tier,
@@ -257,12 +297,15 @@ def export_predictions(
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["id", "product_id", "metric_date", "prediction_label", "confidence", "predicted_value"])
+    writer.writerow(["id", "product_id", "metric_date", "prediction_label", "performance_score", "confidence_pct"])
     for p in preds:
         writer.writerow([
-            p.id, p.product_id,
+            p.id,
+            p.product_id,
             p.metric_date.strftime("%Y-%m-%d") if p.metric_date else "",
-            p.prediction_label, p.confidence, p.predicted_value,
+            p.prediction_label or "",
+            int(p.predicted_value) if p.predicted_value is not None else "",
+            f"{round(p.confidence * 100, 1)}%" if p.confidence is not None else "",
         ])
     output.seek(0)
     return StreamingResponse(
@@ -312,7 +355,7 @@ def audit_log(
     page_size: int = Query(20,  ge=5, le=100, description="Events per page"),
     action_filter: Optional[str] = Query(None, description="Filter by action prefix"),
     db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_user),
+    _: models.User = Depends(require_admin),   # Admin only
 ):
     """Combined audit log of all platform actions with pagination."""
     events = []

@@ -10,6 +10,11 @@ export const getMe = () => api.get('/auth/me');
 export const changeMyPassword = (current_password, new_password) =>
   api.put('/auth/me/password', { current_password, new_password });
 
+export const uploadAvatar = (formData) =>
+  api.post('/auth/me/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+
+export const deleteAvatar = () => api.delete('/auth/me/avatar');
+
 // ── Users (admin) ─────────────────────────────────────────────────────────────
 
 export const listUsers = () => api.get('/users');
@@ -54,7 +59,8 @@ export const getModel = (id) => api.get(`/ml/models/${id}`);
 export const runPredictions = (modelId, datasetId) =>
   api.post(`/ml/predict/${modelId}/${datasetId}`);
 
-export const getPredictions = (modelId) => api.get(`/ml/predictions/${modelId}`);
+export const getPredictions = (modelId, limit = 2000) =>
+  api.get(`/ml/predictions/${modelId}`, { params: { limit } });
 
 export const deleteModel = (id) => api.delete(`/ml/models/${id}`);
 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
-import { CssBaseline } from '@mui/material';
+import { CssBaseline, GlobalStyles } from '@mui/material';
 
 const ThemeContext = createContext(null);
 
@@ -234,16 +234,57 @@ function buildTheme(mode) {
 export function AppThemeProvider({ children }) {
   const [mode, setMode] = useState(() => localStorage.getItem('theme') || 'dark');
 
-  useEffect(() => { localStorage.setItem('theme', mode); }, [mode]);
+  useEffect(() => {
+    localStorage.setItem('theme', mode);
+    // Drive CSS scrollbar selector via html attribute
+    document.documentElement.setAttribute('data-theme', mode);
+  }, [mode]);
 
   const toggleTheme = () => setMode(m => m === 'dark' ? 'light' : 'dark');
 
   const theme = useMemo(() => buildTheme(mode), [mode]);
 
+  const dark = mode === 'dark';
+
+  // Scrollbar styles injected as MUI GlobalStyles so they respond to theme switches
+  const scrollbarStyles = {
+    // Webkit (Chrome / Edge / Safari)
+    '::-webkit-scrollbar': {
+      width: '8px',
+      height: '8px',
+    },
+    '::-webkit-scrollbar-track': {
+      background: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)',
+      borderRadius: '4px',
+    },
+    '::-webkit-scrollbar-thumb': {
+      background: dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.30)',
+      borderRadius: '4px',
+      border: dark ? '2px solid #0f1117' : '2px solid #f1f5f9',
+      backgroundClip: 'padding-box',
+    },
+    '::-webkit-scrollbar-thumb:hover': {
+      background: dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.50)',
+      border: dark ? '2px solid #0f1117' : '2px solid #f1f5f9',
+      backgroundClip: 'padding-box',
+    },
+    '::-webkit-scrollbar-corner': {
+      background: 'transparent',
+    },
+    // Firefox
+    '*': {
+      scrollbarWidth: 'thin',
+      scrollbarColor: dark
+        ? 'rgba(255,255,255,0.25) rgba(255,255,255,0.05)'
+        : 'rgba(0,0,0,0.30) rgba(0,0,0,0.07)',
+    },
+  };
+
   return (
     <ThemeContext.Provider value={{ mode, toggleTheme }}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <GlobalStyles styles={scrollbarStyles} />
         {children}
       </ThemeProvider>
     </ThemeContext.Provider>

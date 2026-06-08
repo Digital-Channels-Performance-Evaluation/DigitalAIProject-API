@@ -4,6 +4,7 @@ import { CircularProgress, Box } from '@mui/material';
 import { AppThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { AlertProvider } from './context/AlertContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -18,8 +19,13 @@ import Profile from './pages/Profile';
 import SmartReport from './pages/SmartReport';
 import NotFound from './pages/NotFound';
 
-function ProtectedRoute({ children, adminOnly = false }) {
+// ── Role helpers ──────────────────────────────────────────────────────────────
+// Roles allowed to upload data / train models / run predictions
+export const DATA_ROLES = ['admin', 'manager', 'officer'];
+
+function ProtectedRoute({ children, requireAdmin = false, requireData = false }) {
   const { user, loading } = useAuth();
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -28,7 +34,8 @@ function ProtectedRoute({ children, adminOnly = false }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  if (adminOnly && user.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  if (requireAdmin && user.role !== 'admin')        return <Navigate to="/dashboard" replace />;
+  if (requireData  && !DATA_ROLES.includes(user.role)) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -46,16 +53,22 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
+
+        {/* All authenticated roles */}
         <Route path="dashboard"   element={<Dashboard />} />
-        <Route path="data"        element={<DataManagement />} />
-        <Route path="models"      element={<ModelTraining />} />
         <Route path="predictions" element={<Predictions />} />
         <Route path="ranking"     element={<ChannelRanking />} />
         <Route path="analytics"   element={<Analytics />} />
         <Route path="report"      element={<SmartReport />} />
-        <Route path="audit"       element={<ProtectedRoute adminOnly><AuditLog /></ProtectedRoute>} />
         <Route path="profile"     element={<Profile />} />
-        <Route path="users"       element={<ProtectedRoute adminOnly><UserManagement /></ProtectedRoute>} />
+
+        {/* Data roles: admin, manager, officer */}
+        <Route path="data"   element={<ProtectedRoute requireData><DataManagement /></ProtectedRoute>} />
+        <Route path="models" element={<ProtectedRoute requireData><ModelTraining /></ProtectedRoute>} />
+
+        {/* Admin only */}
+        <Route path="audit" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
+        <Route path="users" element={<ProtectedRoute requireAdmin><UserManagement /></ProtectedRoute>} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
@@ -67,7 +80,9 @@ export default function App() {
     <AppThemeProvider>
       <AuthProvider>
         <ToastProvider>
-          <AppRoutes />
+          <AlertProvider>
+            <AppRoutes />
+          </AlertProvider>
         </ToastProvider>
       </AuthProvider>
     </AppThemeProvider>

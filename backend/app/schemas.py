@@ -18,9 +18,10 @@ class ModelStatusEnum(str, Enum):
 
 
 class UserRoleEnum(str, Enum):
-    admin = "admin"
-    analyst = "analyst"
-    viewer = "viewer"
+    admin             = "admin"
+    executive_manager = "executive_manager"
+    manager           = "manager"
+    officer           = "officer"
 
 
 # ── User Schemas ─────────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ class UserCreate(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    role: UserRoleEnum = UserRoleEnum.viewer
+    role: UserRoleEnum = UserRoleEnum.officer
 
     @field_validator("password")
     @classmethod
@@ -64,6 +65,7 @@ class UserResponse(BaseModel):
     email: str
     role: UserRoleEnum
     is_active: bool
+    avatar_url: Optional[str] = None
     created_at: datetime
     last_login: Optional[datetime] = None
 
@@ -151,13 +153,14 @@ class MLModelResponse(BaseModel):
     id: int
     name: str
     model_type: str
-    target: str
+    target: Optional[str] = None   # nullable — some legacy models may not have this
     status: ModelStatusEnum
     accuracy: Optional[float] = None
     precision_score: Optional[float] = None
     recall_score: Optional[float] = None
     f1_score: Optional[float] = None
     feature_importance: Optional[Dict[str, float]] = None
+    training_params: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:

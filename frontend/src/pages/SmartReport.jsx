@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box, Grid, Paper, Typography, Select, MenuItem, FormControl,
   InputLabel, CircularProgress, Button, Chip, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  LinearProgress, Tooltip, useTheme,
+  LinearProgress, useTheme,
 } from '@mui/material';
 import DownloadIcon       from '@mui/icons-material/Download';
 import RefreshIcon        from '@mui/icons-material/Refresh';
@@ -14,19 +14,40 @@ import TrendingFlatIcon   from '@mui/icons-material/TrendingFlat';
 import EmojiEventsIcon    from '@mui/icons-material/EmojiEvents';
 import WarningAmberIcon   from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon    from '@mui/icons-material/CheckCircle';
-import InfoIcon           from '@mui/icons-material/Info';
+import TimelineIcon       from '@mui/icons-material/Timeline';
+import TableChartIcon     from '@mui/icons-material/TableChart';
+import InfoOutlinedIcon   from '@mui/icons-material/InfoOutlined';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area,
 } from 'recharts';
-import { listModels, getReportData, downloadReport } from '../api/endpoints';
+import { listModels, getReportData, downloadReport, getChannelTrend, getChannelsOverview } from '../api/endpoints';
 import SectionHeader from '../components/common/SectionHeader';
 import StatusBadge   from '../components/common/StatusBadge';
 import { useToast }  from '../context/ToastContext';
 
-const TIER_COLORS  = { Excellent: '#10b981', Good: '#6366f1', Average: '#f59e0b', Poor: '#ef4444' };
-const TIER_ORDER   = ['Excellent', 'Good', 'Average', 'Poor'];
+const TIER_COLORS  = { High: '#10b981', Medium: '#f59e0b', Low: '#ef4444' };
+const TIER_ORDER   = ['High', 'Medium', 'Low'];
 const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
+
+// Tier gradient backgrounds for KPI cards (reserved for future use)
+// const TIER_GRADIENTS = { ... }
+
+// ── Per-channel distinct colors ───────────────────────────────────────────────
+const CHANNEL_PALETTE = [
+  '#6366f1', '#06b6d4', '#10b981', '#f59e0b',
+  '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6',
+  '#f97316', '#a3e635', '#0ea5e9', '#d946ef',
+];
+function channelColor(productId, index = 0) {
+  if (!productId) return CHANNEL_PALETTE[index % CHANNEL_PALETTE.length];
+  let hash = 0;
+  for (let i = 0; i < productId.length; i++) {
+    hash = productId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return CHANNEL_PALETTE[Math.abs(hash) % CHANNEL_PALETTE.length];
+}
 
 function TrendIcon({ trend, size = 16 }) {
   if (trend === 1)  return <TrendingUpIcon   sx={{ fontSize: size, color: 'success.main' }} />;
@@ -36,29 +57,32 @@ function TrendIcon({ trend, size = 16 }) {
 
 function ScoreGauge({ score }) {
   const theme = useTheme();
-  const color = score >= 75 ? '#10b981' : score >= 55 ? '#6366f1' : score >= 35 ? '#f59e0b' : '#ef4444';
-  const trackColor = theme.palette.mode === 'dark'
-    ? 'rgba(255,255,255,0.08)'
-    : 'rgba(0,0,0,0.08)';
+  const color = score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444';
+  const trackColor = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
   return (
     <Box sx={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
       <Box sx={{
-        width: 100, height: 100, borderRadius: '50%',
+        width: 110, height: 110, borderRadius: '50%',
         background: `conic-gradient(${color} ${score}%, ${trackColor} 0%)`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: `0 0 24px ${color}44`,
+        boxShadow: `0 0 32px ${color}55`,
       }}>
         <Box sx={{
-          width: 76, height: 76, borderRadius: '50%',
-          bgcolor: 'background.paper',
+          width: 84, height: 84, borderRadius: '50%',
+          background: theme.palette.mode === 'dark'
+            ? 'linear-gradient(135deg, #1e2035 0%, #161827 100%)'
+            : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column',
+          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)',
         }}>
-          <Typography sx={{ fontWeight: 800, fontSize: '1.4rem', color, lineHeight: 1 }}>{score}</Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem' }}>/100</Typography>
+          <Typography sx={{ fontWeight: 900, fontSize: '1.5rem', color, lineHeight: 1 }}>{score}</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.58rem', letterSpacing: '0.05em' }}>/100</Typography>
         </Box>
       </Box>
-      <Typography variant="caption" sx={{ mt: 0.75, color: 'text.secondary' }}>Avg Score</Typography>
+      <Typography variant="caption" sx={{ mt: 1, color: 'text.secondary', fontWeight: 600, fontSize: '0.7rem' }}>
+        Avg Score
+      </Typography>
     </Box>
   );
 }
@@ -154,6 +178,12 @@ export default function SmartReport() {
   const [loading, setLoading] = useState(false);
   const printRef = useRef();
 
+  // ── New analytics state ───────────────────────────────────────────────────
+  const [channelTrends,    setChannelTrends]    = useState({});   // { productId: [{date,score,confidence}] }
+  const [trendsLoading,    setTrendsLoading]    = useState(false);
+  const [channelsOverview, setChannelsOverview] = useState([]);
+  const [overviewLoading,  setOverviewLoading]  = useState(false);
+
   // Theme-aware chart colors
   const tickColor     = theme.palette.text.secondary;
   const gridColor     = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
@@ -171,6 +201,33 @@ export default function SmartReport() {
   }, []);
 
   useEffect(() => { if (modelId) loadReport(); }, [modelId]);
+
+  // Load channels overview whenever model changes
+  useEffect(() => {
+    if (!modelId) return;
+    setOverviewLoading(true);
+    getChannelsOverview(modelId)
+      .then(r => setChannelsOverview(r.data || []))
+      .catch(() => setChannelsOverview([]))
+      .finally(() => setOverviewLoading(false));
+  }, [modelId]);
+
+  // Once report loads, fetch trend data for top 3 channels
+  useEffect(() => {
+    if (!report?.top_performers?.length || !modelId) return;
+    const top3 = report.top_performers.slice(0, 3);
+    setTrendsLoading(true);
+    Promise.all(
+      top3.map(c => getChannelTrend(c.product_id, modelId)
+        .then(r => ({ id: c.product_id, data: r.data?.data || [] }))
+        .catch(() => ({ id: c.product_id, data: [] }))
+      )
+    ).then(results => {
+      const map = {};
+      results.forEach(r => { map[r.id] = r.data; });
+      setChannelTrends(map);
+    }).finally(() => setTrendsLoading(false));
+  }, [report, modelId]);
 
   const loadReport = () => {
     setLoading(true);
@@ -245,6 +302,53 @@ export default function SmartReport() {
             </Grid>
           )}
         </Grid>
+
+        {/* ── Model Accuracy Summary row ───────────────────────────────── */}
+        {(() => {
+          const selectedModel = models.find(m => m.id === modelId);
+          if (!selectedModel) return null;
+          const acc      = selectedModel.accuracy  != null ? `${(selectedModel.accuracy  * 100).toFixed(1)}%` : '—';
+          const f1       = selectedModel.f1_score   != null ? `${(selectedModel.f1_score   * 100).toFixed(1)}%` : '—';
+          const tp       = selectedModel.training_params || {};
+          const split    = tp.test_size != null ? `${Math.round(tp.test_size * 100)}% test` : tp.cv_folds ? `${tp.cv_folds}-fold CV` : '—';
+          const dist     = selectedModel.class_distribution || tp.class_distribution;
+          return (
+            <Box sx={{
+              mt: 2, pt: 2, borderTop: `1px solid ${dividerColor}`,
+              display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center',
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                  Model Info
+                </Typography>
+              </Box>
+              {[
+                { label: 'Accuracy', value: acc,  color: '#10b981' },
+                { label: 'F1',       value: f1,   color: '#6366f1' },
+                { label: 'Split',    value: split, color: theme.palette.text.primary },
+              ].map(item => (
+                <Box key={item.label} sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+                  <Typography sx={{ fontWeight: 800, fontSize: '0.95rem', color: item.color }}>
+                    {item.value}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>{item.label}</Typography>
+                </Box>
+              ))}
+              {dist && Object.entries(dist).map(([tier, count]) => (
+                <Box key={tier} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    bgcolor: TIER_COLORS[tier] || '#888',
+                  }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                    {tier}: {count}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          );
+        })()}
       </Paper>
 
       {loading ? (
@@ -272,10 +376,9 @@ export default function SmartReport() {
               </Box>
             </Grid>
             {[
-              { label: 'Excellent', value: report.summary.excellent_count, color: '#10b981', icon: <CheckCircleIcon /> },
-              { label: 'Good',      value: report.summary.good_count,      color: '#6366f1', icon: <InfoIcon /> },
-              { label: 'Average',   value: report.summary.average_count,   color: '#f59e0b', icon: <WarningAmberIcon /> },
-              { label: 'Poor',      value: report.summary.poor_count,      color: '#ef4444', icon: <WarningAmberIcon /> },
+              { label: 'High',     value: report.summary.high_count,      color: '#10b981', icon: <CheckCircleIcon /> },
+              { label: 'Medium',   value: report.summary.medium_count,    color: '#f59e0b', icon: <WarningAmberIcon /> },
+              { label: 'Low',      value: report.summary.low_count,       color: '#ef4444', icon: <WarningAmberIcon /> },
               { label: 'Improving', value: report.summary.improving_count, color: '#10b981', icon: <TrendingUpIcon />, sub: 'channels ↑' },
               { label: 'Declining', value: report.summary.declining_count, color: '#ef4444', icon: <TrendingDownIcon />, sub: 'channels ↓' },
             ].map(k => (
@@ -312,7 +415,7 @@ export default function SmartReport() {
             {/* ── Score Bar Chart ────────────────────────────────────────── */}
             <Grid item xs={12} md={8}>
               <Paper sx={{ p: 3, height: 300 }}>
-                <Typography variant="h6" sx={{ mb: 1, color: 'text.primary' }}>Channel Scores (Top 10)</Typography>
+                <Typography variant="h6" sx={{ mb: 1, color: 'text.primary' }}>Channel Scores (Top 7)</Typography>
                 <ResponsiveContainer width="100%" height={230}>
                   <BarChart
                     data={report.channels.slice(0, 10).map(c => ({
@@ -333,8 +436,8 @@ export default function SmartReport() {
                       formatter={v => [`${v}/100`, 'Score']}
                     />
                     <Bar dataKey="score" radius={[4, 4, 0, 0]} maxBarSize={36}>
-                      {report.channels.slice(0, 10).map(c => (
-                        <Cell key={c.product_id} fill={TIER_COLORS[c.tier]} />
+                      {report.channels.slice(0, 10).map((c, idx) => (
+                        <Cell key={c.product_id} fill={channelColor(c.product_id, idx)} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -349,7 +452,9 @@ export default function SmartReport() {
                   <EmojiEventsIcon sx={{ color: '#FFD700' }} />
                   <Typography variant="h6" sx={{ color: 'text.primary' }}>Top Performers</Typography>
                 </Box>
-                {report.top_performers.map((c, i) => (
+                {report.top_performers.map((c, i) => {
+                  const color = channelColor(c.product_id, i);
+                  return (
                   <Box key={c.product_id} sx={{
                     display: 'flex', alignItems: 'center', gap: 2, py: 1.25,
                     borderBottom: i < report.top_performers.length - 1
@@ -359,21 +464,22 @@ export default function SmartReport() {
                       {['🥇', '🥈', '🥉'][i]}
                     </Typography>
                     <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: 'text.primary' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color }}>
                         {c.product_id}
                       </Typography>
                       <LinearProgress variant="determinate" value={c.score}
                         sx={{ height: 5, borderRadius: 3, mt: 0.5,
                           bgcolor: progressTrack,
-                          '& .MuiLinearProgress-bar': { bgcolor: TIER_COLORS[c.tier] } }} />
+                          '& .MuiLinearProgress-bar': { bgcolor: color } }} />
                     </Box>
                     <StatusBadge status={c.tier} />
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: TIER_COLORS[c.tier], minWidth: 32 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color, minWidth: 32 }}>
                       {c.score}
                     </Typography>
                     <TrendIcon trend={c.trend} />
                   </Box>
-                ))}
+                  );
+                })}
               </Paper>
             </Grid>
 
@@ -384,7 +490,9 @@ export default function SmartReport() {
                   <WarningAmberIcon sx={{ color: 'error.main' }} />
                   <Typography variant="h6" sx={{ color: 'text.primary' }}>Needs Attention</Typography>
                 </Box>
-                {report.bottom_performers.map((c, i) => (
+                {report.bottom_performers.map((c, i) => {
+                  const color = channelColor(c.product_id, i + report.top_performers.length);
+                  return (
                   <Box key={c.product_id} sx={{
                     display: 'flex', alignItems: 'center', gap: 2, py: 1.25,
                     borderBottom: i < report.bottom_performers.length - 1
@@ -392,127 +500,200 @@ export default function SmartReport() {
                   }}>
                     <Box sx={{
                       width: 24, height: 24, borderRadius: '50%',
-                      bgcolor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)',
+                      bgcolor: color + '22', border: `1px solid ${color}55`,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, color: 'error.main' }}>
+                      <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, color }}>
                         {c.rank}
                       </Typography>
                     </Box>
                     <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: 'text.primary' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color }}>
                         {c.product_id}
                       </Typography>
                       <LinearProgress variant="determinate" value={c.score}
                         sx={{ height: 5, borderRadius: 3, mt: 0.5,
                           bgcolor: progressTrack,
-                          '& .MuiLinearProgress-bar': { bgcolor: TIER_COLORS[c.tier] } }} />
+                          '& .MuiLinearProgress-bar': { bgcolor: color } }} />
                     </Box>
                     <StatusBadge status={c.tier} />
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: TIER_COLORS[c.tier], minWidth: 32 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color, minWidth: 32 }}>
                       {c.score}
                     </Typography>
                     <TrendIcon trend={c.trend} />
                   </Box>
-                ))}
+                  );
+                })}
               </Paper>
             </Grid>
 
-            {/* ── Executive Narrative ────────────────────────────────────── */}
+            {/* ── Executive Narrative — MOVED TO END ────────────────────── */}
+
+            {/* ── Channel Performance Trend (top 3 mini area charts) ──── */}
             <Grid item xs={12}>
               <Paper sx={{ p: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2.5 }}>
-                  <AssessmentIcon sx={{ color: 'primary.light' }} />
-                  <Typography variant="h6" sx={{ color: 'text.primary' }}>Executive Narrative</Typography>
-                  <Chip label="AI Generated" size="small"
-                    sx={{ ml: 1, fontSize: '0.65rem', bgcolor: 'rgba(99,102,241,0.15)', color: 'primary.light' }} />
+                  <TimelineIcon sx={{ color: 'secondary.light' }} />
+                  <Typography variant="h6" sx={{ color: 'text.primary' }}>
+                    Channel Performance Trend
+                  </Typography>
+                  <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+                    Top 3 channels over time
+                  </Typography>
+                  {trendsLoading && <CircularProgress size={16} sx={{ ml: 'auto' }} />}
                 </Box>
-                <NarrativeSection text={report.narrative} />
+                <Grid container spacing={2}>
+                  {report.top_performers.slice(0, 3).map((c, idx) => {
+                    const color    = channelColor(c.product_id, idx);
+                    const trendData = channelTrends[c.product_id] || [];
+                    const gradId   = `trendGrad_${idx}`;
+                    return (
+                      <Grid item xs={12} md={4} key={c.product_id}>
+                        <Box sx={{
+                          p: 2, borderRadius: 2,
+                          border: `1px solid ${color}33`,
+                          bgcolor: color + '08',
+                        }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                            <Box sx={{
+                              width: 10, height: 10, borderRadius: '50%', bgcolor: color, flexShrink: 0,
+                            }} />
+                            <Typography variant="caption" sx={{
+                              fontWeight: 700, fontFamily: 'monospace', color,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
+                              {c.product_id}
+                            </Typography>
+                            <StatusBadge status={c.tier} />
+                            <Typography variant="caption" sx={{ ml: 'auto', fontWeight: 800, color }}>
+                              {c.score}
+                            </Typography>
+                          </Box>
+                          {trendData.length === 0 ? (
+                            <Box sx={{ height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {trendsLoading
+                                ? <CircularProgress size={18} />
+                                : <Typography variant="caption" sx={{ color: 'text.secondary' }}>No trend data</Typography>
+                              }
+                            </Box>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={100}>
+                              <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                                <defs>
+                                  <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%"  stopColor={color} stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor={color} stopOpacity={0}   />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                                <XAxis dataKey="date" tick={{ fill: tickColor, fontSize: 9 }}
+                                  axisLine={false} tickLine={false}
+                                  tickFormatter={d => d?.slice(5)} interval="preserveStartEnd" />
+                                <YAxis domain={[0, 100]} tick={{ fill: tickColor, fontSize: 9 }}
+                                  axisLine={false} tickLine={false} />
+                                <RTooltip
+                                  contentStyle={{ background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 6, fontSize: 11 }}
+                                  labelStyle={{ color: theme.palette.text.primary }}
+                                  formatter={(v, n) => [n === 'score' ? `${v}/100` : `${v}%`, n === 'score' ? 'Score' : 'Confidence']}
+                                />
+                                <Area type="monotone" dataKey="score" stroke={color}
+                                  fill={`url(#${gradId})`} strokeWidth={2} dot={false} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          )}
+                        </Box>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
               </Paper>
             </Grid>
 
-            {/* ── Full Rankings Table ────────────────────────────────────── */}
+            {/* ── Channels Overview Table ────────────────────────────────── */}
             <Grid item xs={12}>
               <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" sx={{ mb: 2, color: 'text.primary' }}>
-                  Complete Channel Rankings
-                  <Typography component="span" variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
-                    {report.channels.length} channels
-                  </Typography>
-                </Typography>
-                <TableContainer sx={{ maxHeight: 420 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ width: 60 }}>Rank</TableCell>
-                        <TableCell>Channel</TableCell>
-                        <TableCell>Tier</TableCell>
-                        <TableCell>Score</TableCell>
-                        <TableCell>Confidence</TableCell>
-                        <TableCell>Predictions</TableCell>
-                        <TableCell sx={{ width: 80 }}>Trend</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {report.channels.map(c => (
-                        <TableRow key={c.product_id} hover
-                          sx={{
-                            bgcolor: c.tier === 'Poor'
-                              ? (isDark ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.04)')
-                              : c.tier === 'Excellent'
-                              ? (isDark ? 'rgba(16,185,129,0.05)' : 'rgba(16,185,129,0.04)')
-                              : 'transparent',
-                          }}>
-                          <TableCell>
-                            <Typography sx={{
-                              fontWeight: 800, fontSize: '0.85rem',
-                              color: c.rank <= 3 ? MEDAL_COLORS[c.rank - 1] : 'text.secondary',
-                            }}>
-                              {c.rank <= 3 ? ['🥇', '🥈', '🥉'][c.rank - 1] : `#${c.rank}`}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: 'text.primary' }}>
-                              {c.product_id}
-                            </Typography>
-                          </TableCell>
-                          <TableCell><StatusBadge status={c.tier} /></TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <LinearProgress variant="determinate" value={c.score}
-                                sx={{ width: 60, height: 5, borderRadius: 3,
-                                  bgcolor: progressTrack,
-                                  '& .MuiLinearProgress-bar': { bgcolor: TIER_COLORS[c.tier] } }} />
-                              <Typography variant="caption" sx={{ fontWeight: 700, color: TIER_COLORS[c.tier] }}>
-                                {c.score}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="caption" sx={{ color: 'text.primary' }}>
-                              {c.confidence}%
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="caption" sx={{ color: 'text.primary' }}>
-                              {c.count}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <TrendIcon trend={c.trend} />
-                              <Typography variant="caption" sx={{ color: 'text.primary', fontSize: '0.65rem' }}>
-                                {c.trend === 1 ? 'Improving' : c.trend === -1 ? 'Declining' : 'Stable'}
-                              </Typography>
-                            </Box>
-                          </TableCell>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <TableChartIcon sx={{ color: 'warning.main' }} />
+                  <Typography variant="h6" sx={{ color: 'text.primary' }}>Channels Overview</Typography>
+                  {channelsOverview.length > 0 && (
+                    <Chip label={`${channelsOverview.length} channels`} size="small" sx={{ ml: 1 }} />
+                  )}
+                  {overviewLoading && <CircularProgress size={16} sx={{ ml: 'auto' }} />}
+                </Box>
+                {channelsOverview.length === 0 && !overviewLoading ? (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', py: 2 }}>No overview data available</Typography>
+                ) : (
+                  <TableContainer sx={{ maxHeight: 320 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Channel</TableCell>
+                          <TableCell>Tier</TableCell>
+                          <TableCell>Score</TableCell>
+                          <TableCell>Avg Confidence</TableCell>
+                          <TableCell>Predictions</TableCell>
+                          <TableCell>Trend</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                      </TableHead>
+                      <TableBody>
+                        {channelsOverview.map((c, idx) => {
+                          const color = channelColor(c.product_id, idx);
+                          return (
+                            <TableRow key={c.product_id} hover>
+                              <TableCell>
+                                <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600, color }}>
+                                  {c.product_id}
+                                </Typography>
+                              </TableCell>
+                              <TableCell><StatusBadge status={c.tier} /></TableCell>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <LinearProgress
+                                    variant="determinate" value={c.score}
+                                    sx={{ width: 56, height: 4, borderRadius: 2,
+                                      bgcolor: progressTrack,
+                                      '& .MuiLinearProgress-bar': { bgcolor: color } }}
+                                  />
+                                  <Typography variant="caption" sx={{ fontWeight: 700, color }}>{c.score}</Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                  {c.avg_confidence != null ? `${c.avg_confidence}%` : '—'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>{c.count}</Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <TrendIcon trend={c.trend} size={14} />
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
+                                    {c.trend === 1 ? 'Improving' : c.trend === -1 ? 'Declining' : 'Stable'}
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
               </Paper>
             </Grid>
+
+            {/* ── Executive Narrative ───────────────────────────────────── */}
+            {report.narrative && (
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 2, color: 'text.primary' }}>
+                    Executive Narrative
+                  </Typography>
+                  <NarrativeSection text={report.narrative} />
+                </Paper>
+              </Grid>
+            )}
 
           </Grid>
         </Box>
