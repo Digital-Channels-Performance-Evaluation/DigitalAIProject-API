@@ -108,6 +108,7 @@ def compare_models(db: Session = Depends(get_db),
             "id": m.id, "name": m.name, "model_type": m.model_type,
             "accuracy": m.accuracy, "f1_score": m.f1_score,
             "precision_score": m.precision_score, "recall_score": m.recall_score,
+            "training_params": m.training_params,
             "created_at": m.created_at,
         }
         for m in mls

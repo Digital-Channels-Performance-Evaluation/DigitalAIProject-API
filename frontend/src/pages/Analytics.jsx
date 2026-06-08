@@ -22,6 +22,7 @@ import {
   getConfusionMatrix, getDataProfile, getChannelTrend,
   getChannelsOverview, exportPredictions, exportDataset,
   getPredictions, getModel,
+  getModelComparison,
 } from '../api/endpoints';
 import SectionHeader    from '../components/common/SectionHeader';
 import StatusBadge      from '../components/common/StatusBadge';
@@ -262,6 +263,7 @@ export default function Analytics() {
   const [trend,     setTrend]     = useState([]);
   const [allPreds,  setAllPreds]  = useState([]);
   const [featImportance, setFeatImportance] = useState(null);
+  const [compData,  setCompData]  = useState([]);  // model comparison data
 
   const [loadingCm,  setLoadingCm]  = useState(false);
   const [loadingPro, setLoadingPro] = useState(false);
@@ -277,6 +279,10 @@ export default function Analytics() {
       if (ready.length)  setModelId(ready[0].id);
       if (done.length)   setDatasetId(done[0].id);
     });
+    // Load model comparison data once on mount
+    getModelComparison()
+      .then(r => setCompData(r.data || []))
+      .catch(() => setCompData([]));
   }, []);
 
   // Load confusion matrix when model changes
@@ -295,7 +301,7 @@ export default function Analytics() {
     }).catch(() => {});
 
     // Load all predictions for EDA
-    getPredictions(modelId, 0, 2000)
+    getPredictions(modelId, 2000)
       .then(r => setAllPreds(r.data.predictions || []))
       .catch(() => setAllPreds([]));
 
@@ -395,6 +401,266 @@ export default function Analytics() {
       </Paper>
 
       <Grid container spacing={3}>
+        {/* ── Model Comparison ─────────────────────────────────────────── */}
+        {(compData.length > 0 || allModels.length > 1) && (() => {
+          // Use compData from dashboard API; fall back to allModels list metrics
+          const rows = compData.length > 0
+            ? compData
+            : allModels.map(m => ({
+                id: m.id,
+                name: m.name,
+                model_type: m.model_type,
+                accuracy: m.accuracy,
+                precision_score: m.precision_score,
+                recall_score: m.recall_score,
+                f1_score: m.f1_score,
+              }));
+
+          const metrics = ['accuracy', 'precision_score', 'recall_score', 'f1_score'];
+          const metricLabels = { accuracy: 'Accuracy', precision_score: 'Precision', recall_score: 'Recall', f1_score: 'F1' };
+          const metricColors = { accuracy: '#6366f1', precision_score: '#10b981', recall_score: '#f59e0b', f1_score: '#06b6d4' };
+
+          // Best model per metric
+          const bestPer = {};
+          metrics.forEach(m => {
+            const best = [...rows].sort((a, b) => (b[m] || 0) - (a[m] || 0))[0];
+            if (best) bestPer[m] = best;
+          });
+
+          // Bar chart data — one entry per model, grouped bars
+          const barData = rows.map(m => ({
+            name: m.name?.length > 14 ? m.name.slice(0, 14) + '…' : (m.name || `Model ${m.id}`),
+            fullName: m.name || `Model ${m.id}`,
+            Accuracy:  Math.round((m.accuracy || 0) * 100),
+            Precision: Math.round((m.precision_score || 0) * 100),
+            Recall:    Math.round((m.recall_score || 0) * 100),
+            F1:        Math.round((m.f1_score || 0) * 100),
+          }));
+
+          // Radar data — spider chart across metrics for each model
+          const radarData = metrics.map(mk => {
+            const entry = { metric: metricLabels[mk] };
+            rows.forEach(m => {
+              entry[m.name || `M${m.id}`] = Math.round((m[mk] || 0) * 100);
+            });
+            return entry;
+          });
+
+          const COMP_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#f97316'];
+          const tc  = theme.palette.text.secondary;
+          const tp  = theme.palette.text.primary;
+          const ttBg  = theme.palette.background.paper;
+          const ttBdr = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.12)';
+          const gc    = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+
+          return (
+            <>
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <InsightsIcon sx={{ color: '#6366f1' }} />
+                  <Typography variant="h6" sx={{ color: 'text.primary' }}>
+                    Model Evaluation &amp; Comparison
+                  </Typography>
+                  <Chip label={`${rows.length} models`} size="small"
+                    sx={{ ml: 1, fontSize: '0.68rem', bgcolor: 'rgba(99,102,241,0.12)', color: 'primary.light' }} />
+                </Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, pl: 0.5 }}>
+                  Side-by-side performance metrics across all trained models. Chronological (no look-ahead) train/test split.
+                </Typography>
+              </Grid>
+
+              {/* Grouped bar chart */}
+              <Grid item xs={12} lg={7}>
+                <Paper sx={{ p: 3 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 2, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Accuracy / Precision / Recall / F1 per Model (%)
+                  </Typography>
+                  <ResponsiveContainer width="100%" height={Math.max(220, rows.length * 52)}>
+                    <BarChart data={barData} layout="vertical"
+                      margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={gc} horizontal={false} />
+                      <XAxis type="number" domain={[0, 100]} tick={{ fill: tc, fontSize: 10 }}
+                        axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                      <YAxis dataKey="name" type="category" width={120}
+                        tick={{ fill: tp, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <RTooltip
+                        contentStyle={{ background: ttBg, border: `1px solid ${ttBdr}`, borderRadius: 8 }}
+                        itemStyle={{ color: tp }}
+                        formatter={(v, n) => [`${v}%`, n]}
+                        labelFormatter={l => {
+                          const r = barData.find(d => d.name === l);
+                          return r?.fullName || l;
+                        }}
+                        cursor={{ fill: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
+                      />
+                      <Bar dataKey="Accuracy"  fill={metricColors.accuracy}       radius={[0,3,3,0]} maxBarSize={14} />
+                      <Bar dataKey="Precision" fill={metricColors.precision_score} radius={[0,3,3,0]} maxBarSize={14} />
+                      <Bar dataKey="Recall"    fill={metricColors.recall_score}    radius={[0,3,3,0]} maxBarSize={14} />
+                      <Bar dataKey="F1"        fill={metricColors.f1_score}        radius={[0,3,3,0]} maxBarSize={14} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <Box sx={{ display: 'flex', gap: 2, mt: 1.5, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {metrics.map(m => (
+                      <Box key={m} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: 1, bgcolor: metricColors[m] }} />
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.67rem' }}>{metricLabels[m]}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Paper>
+              </Grid>
+
+              {/* Radar chart */}
+              <Grid item xs={12} lg={5}>
+                <Paper sx={{ p: 3 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 2, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Model Radar — All Metrics
+                  </Typography>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <RadarChart data={radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
+                      <PolarGrid stroke={isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)'} />
+                      <PolarAngleAxis dataKey="metric" tick={{ fill: tc, fontSize: 11 }} />
+                      <PolarRadiusAxis angle={45} domain={[0, 100]} tick={{ fill: tc, fontSize: 9 }} />
+                      {rows.map((m, i) => (
+                        <Radar key={m.id}
+                          name={m.name || `Model ${m.id}`}
+                          dataKey={m.name || `M${m.id}`}
+                          stroke={COMP_COLORS[i % COMP_COLORS.length]}
+                          fill={COMP_COLORS[i % COMP_COLORS.length]}
+                          fillOpacity={0.12}
+                          strokeWidth={1.5}
+                        />
+                      ))}
+                      <RTooltip contentStyle={{ background: ttBg, border: `1px solid ${ttBdr}`, borderRadius: 8 }}
+                        itemStyle={{ color: tp }} formatter={v => [`${v}%`]} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                  <Box sx={{ display: 'flex', gap: 2, mt: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {rows.map((m, i) => (
+                      <Box key={m.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: COMP_COLORS[i % COMP_COLORS.length] }} />
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem' }}>
+                          {m.name || `Model ${m.id}`}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Paper>
+              </Grid>
+
+              {/* Best-per-metric highlight cards */}
+              {Object.keys(bestPer).length > 0 && (
+                <Grid item xs={12}>
+                  <Grid container spacing={2}>
+                    {metrics.map(mk => {
+                      const best = bestPer[mk];
+                      if (!best) return null;
+                      return (
+                        <Grid item xs={6} sm={3} key={mk}>
+                          <Paper sx={{
+                            p: 2, textAlign: 'center',
+                            border: `1px solid ${metricColors[mk]}40`,
+                            bgcolor: `${metricColors[mk]}0a`,
+                          }}>
+                            <Typography variant="caption" sx={{
+                              color: 'text.secondary', fontSize: '0.68rem',
+                              textTransform: 'uppercase', letterSpacing: '0.06em',
+                              display: 'block', mb: 0.5,
+                            }}>
+                              Best {metricLabels[mk]}
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 800, color: metricColors[mk] }}>
+                              {Math.round((best[mk] || 0) * 100)}%
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
+                              {best.name || `Model ${best.id}`}
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Grid>
+              )}
+
+              {/* Full comparison table */}
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 2, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Full Model Comparison Table
+                  </Typography>
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Model</TableCell>
+                          <TableCell>Type</TableCell>
+                          <TableCell>Accuracy</TableCell>
+                          <TableCell>Precision</TableCell>
+                          <TableCell>Recall</TableCell>
+                          <TableCell>F1</TableCell>
+                          <TableCell>Split</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {rows.map((m, i) => {
+                          const tp_val = m.training_params || {};
+                          const isChron = tp_val.split_method === 'chronological';
+                          return (
+                            <TableRow key={m.id} hover
+                              sx={{ bgcolor: m.id === modelId ? 'rgba(99,102,241,0.06)' : 'transparent' }}>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: COMP_COLORS[i % COMP_COLORS.length], flexShrink: 0 }} />
+                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                    {m.name || `Model ${m.id}`}
+                                  </Typography>
+                                  {m.id === modelId && (
+                                    <Chip label="selected" size="small"
+                                      sx={{ fontSize: '0.6rem', height: 16, bgcolor: 'rgba(99,102,241,0.15)', color: 'primary.light' }} />
+                                  )}
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>
+                                  {m.model_type}
+                                </Typography>
+                              </TableCell>
+                              {metrics.map(mk => (
+                                <TableCell key={mk}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                    <LinearProgress variant="determinate" value={Math.round((m[mk] || 0) * 100)}
+                                      sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: progressTrack,
+                                        '& .MuiLinearProgress-bar': { bgcolor: metricColors[mk] } }} />
+                                    <Typography variant="caption" sx={{ color: metricColors[mk], fontWeight: 700 }}>
+                                      {Math.round((m[mk] || 0) * 100)}%
+                                    </Typography>
+                                  </Box>
+                                </TableCell>
+                              ))}
+                              <TableCell>
+                                <Chip
+                                  label={isChron ? 'Chronological' : 'Random'}
+                                  size="small"
+                                  sx={{
+                                    fontSize: '0.6rem', height: 18,
+                                    bgcolor: isChron ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                                    color: isChron ? '#10b981' : '#f59e0b',
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Paper>
+              </Grid>
+            </>
+          );
+        })()}
+
         {/* ── Confusion Matrix ─────────────────────────────────────────── */}
         <Grid item xs={12} lg={5}>
           <Paper sx={{ p: 3, height: '100%' }}>
