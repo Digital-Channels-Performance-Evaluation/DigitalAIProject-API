@@ -1,0 +1,24 @@
+
+> ahadu-bank-eval-platform@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.0.3
+   - Local:        http://localhost:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+Error: UNKNOWN: unknown error, scandir 'A:\ML Model project\AHADU PULSE\frontend\.next\server'
+    at async recursiveDelete (node_modules\next\src\lib\recursive-delete.ts:48:13)
+    at async (node_modules\next\src\lib\recursive-delete.ts:83:10)
+    at async recursiveDelete (node_modules\next\src\lib\recursive-delete.ts:56:2)
+    at async Span.traceAsyncFn (node_modules\next\src\trace\trace.ts:143:13)
+    at async HotReloaderWebpack.start (node_modules\next\src\server\dev\hot-reloader-webpack.ts:786:4)
+    at async startWatcher (node_modules\next\src\server\lib\router-utils\setup-dev-bundler.ts:207:2)
+    at async setupDevBundler (node_modules\next\src\server\lib\router-utils\setup-dev-bundler.ts:1109:17)
+    at async Span.traceAsyncFn (node_modules\next\src\trace\trace.ts:143:13) {
+  errno: -4094,
+  code: 'UNKNOWN',
+  syscall: 'scandir',
+  path: 'A:\\ML Model project\\AHADU PULSE\\frontend\\.next\\server'
+}
+[?25h

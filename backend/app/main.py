@@ -1,178 +1,146 @@
-from fastapi import FastAPI
+"""
+Ahadu Bank Digital Banking Product Evaluation Platform - Backend API
+"""
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import logging
-import threading
 
-from app.config import settings
-from app.database import create_tables
-from app.api.v1 import upload, ml, dashboard, auth, users, analytics, report
+from app.core.config import settings
+from app.core.database import Base, engine
+from app.api.v1 import auth, users, products, scores, rankings, alerts, recommendations, ml, data, reports
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-_watcher_thread: threading.Thread | None = None
-
-
-def _start_folder_watcher():
-    """Start the raw-data folder watcher in a background daemon thread."""
-    try:
-        import time
-        from watchdog.observers import Observer
-        from watchdog.events import FileSystemEventHandler
-        from app.core.feature_engineering import feature_engineer
-        from app.database import SessionLocal
-        from app import models
-        from app.api.v1.upload import _process_and_save
-        from pathlib import Path
-
-        class _Handler(FileSystemEventHandler):
-            def _handle(self, file_path: Path):
-                if file_path.suffix.lower() not in settings.ALLOWED_EXTENSIONS:
-                    return
-                # Wait for the file to finish being written (retry up to 10s)
-                for attempt in range(10):
-                    try:
-                        with open(file_path, "rb"):
-                            pass
-                        break  # file is readable
-                    except (PermissionError, OSError):
-                        time.sleep(1)
-                else:
-                    logger.warning(f"Watcher: file still locked after 10s, skipping {file_path.name}")
-                    return
-
-                db = SessionLocal()
-                try:
-                    existing = db.query(models.Dataset).filter(
-                        models.Dataset.filename == file_path.name
-                    ).first()
-                    if existing:
-                        return
-                    from datetime import datetime
-                    size_kb = round(file_path.stat().st_size / 1024, 2)
-                    ds = models.Dataset(
-                        filename=file_path.name,
-                        original_filename=file_path.name,
-                        file_path=str(file_path),
-                        file_size_kb=size_kb,
-                        file_type=file_path.suffix.lstrip("."),
-                        status=models.UploadStatus.pending,
-                    )
-                    db.add(ds)
-                    db.commit()
-                    db.refresh(ds)
-                    logger.info(f"Watcher: new file detected — {file_path.name}")
-                    _process_and_save(ds.id, file_path)
-                except Exception as e:
-                    logger.warning(f"Watcher error for {file_path.name}: {e}")
-                finally:
-                    db.close()
-
-            def on_created(self, event):
-                if not event.is_directory:
-                    self._handle(Path(event.src_path))
-
-        observer = Observer()
-        observer.schedule(_Handler(), str(settings.RAW_DATA_DIR), recursive=False)
-        observer.start()
-        logger.info(f"Folder watcher started on {settings.RAW_DATA_DIR}")
-        try:
-            while True:
-                time.sleep(settings.SCAN_INTERVAL_SECONDS)
-        except Exception:
-            pass
-        finally:
-            observer.stop()
-            observer.join()
-    except Exception as e:
-        logger.warning(f"Folder watcher could not start: {e}")
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    try:
-        create_tables()
-        _seed_admin()
-    except Exception as e:
-        logger.warning(f"DB not available at startup: {e}")
-
-    # Start folder watcher if enabled
-    if settings.WATCH_DATA_FOLDER:
-        global _watcher_thread
-        _watcher_thread = threading.Thread(target=_start_folder_watcher, daemon=True)
-        _watcher_thread.start()
-
-    yield
-
-
-def _seed_admin():
-    """Create the default admin account if no users exist yet."""
-    from app.database import SessionLocal
-    from app import models
-    from app.core.security import hash_password
-
-    db = SessionLocal()
-    try:
-        if db.query(models.User).count() == 0:
-            admin = models.User(
-                full_name="System Administrator",
-                email="admin@digitalchannels.com",
-                hashed_password=hash_password("Admin@1234"),
-                role=models.UserRole.admin,
-                is_active=True,
-            )
-            db.add(admin)
-            db.commit()
-            logger.info("Default admin created: admin@digitalchannels.com / Admin@1234")
-    finally:
-        db.close()
-
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="ML-powered evaluation platform for digital channel performance.",
-    lifespan=lifespan,
+    description="AI-Powered Digital Banking Product Evaluation Platform for Ahadu Bank",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    redirect_slashes=False,  # Prevent 307/308 redirects that strip Authorization headers
 )
 
-# CORS
+# State
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Middleware — CORS
+# In development allow all localhost origins so any port works.
+# In production set ALLOWED_ORIGINS in .env to your real domain.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
-app.include_router(auth.router,      prefix="/api/v1")   # public
-app.include_router(users.router,     prefix="/api/v1")   # admin-protected
-app.include_router(upload.router,    prefix="/api/v1")   # auth-protected
-app.include_router(ml.router,        prefix="/api/v1")   # auth-protected
-app.include_router(dashboard.router, prefix="/api/v1")   # auth-protected
-app.include_router(analytics.router, prefix="/api/v1")   # auth-protected
-app.include_router(report.router,   prefix="/api/v1")   # auth-protected
+# API Routers
+API_PREFIX = "/api"
+app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(users.router, prefix=API_PREFIX)
+app.include_router(products.router, prefix=API_PREFIX)
+app.include_router(scores.router, prefix=API_PREFIX)
+app.include_router(rankings.router, prefix=API_PREFIX)
+app.include_router(alerts.router, prefix=API_PREFIX)
+app.include_router(recommendations.router, prefix=API_PREFIX)
+app.include_router(ml.router, prefix=API_PREFIX)
+app.include_router(data.router, prefix=API_PREFIX)
+app.include_router(reports.router, prefix=API_PREFIX)
 
 
-@app.get("/", tags=["Health"])
-def root():
+@app.on_event("startup")
+async def startup():
+    logger.info("Starting Ahadu Bank Evaluation Platform...")
+
+    # Create tables if they don't exist
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables initialized.")
+
+    # Apply any missing column migrations (safe ALTER TABLE IF NOT EXISTS)
+    _apply_migrations()
+
+    # Seed initial data
+    from app.db.seed import seed_database
+    seed_database()
+    logger.info("Database seeded.")
+
+
+def _apply_migrations():
+    """Add missing columns that were added after initial schema creation.
+    Uses IF NOT EXISTS so safe to run on any database state."""
+    migrations = [
+        # raw_data new BRD columns
+        "ALTER TABLE raw_data ADD COLUMN IF NOT EXISTS failed_txn_rate DOUBLE NULL",
+        "ALTER TABLE raw_data ADD COLUMN IF NOT EXISTS downtime_minutes DOUBLE NULL",
+        "ALTER TABLE raw_data ADD COLUMN IF NOT EXISTS api_error_rate DOUBLE NULL",
+        "ALTER TABLE raw_data ADD COLUMN IF NOT EXISTS csat_score DOUBLE NULL",
+        "ALTER TABLE raw_data ADD COLUMN IF NOT EXISTS fraud_event_count INT NULL",
+        "ALTER TABLE raw_data ADD COLUMN IF NOT EXISTS security_incident_count INT NULL",
+        # processed_features new columns
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS failed_txn_rate_pct DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS prev_complaint_volume DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS complaint_resolution_rate DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_active_user_rate DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_revenue_per_active_user DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_transaction_success_rate DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_operational_efficiency DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_complaint_growth_rate DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_downtime_impact DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_user_engagement_index DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS norm_revenue_per_transaction DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS csat_score DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS fraud_event_count INT NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS security_incident_count INT NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS api_error_rate DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS avg_session_duration_sec DOUBLE NULL",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS data_quality_flag TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE processed_features ADD COLUMN IF NOT EXISTS data_quality_notes TEXT NULL",
+    ]
+
+    from sqlalchemy import text
+    from app.core.database import SessionLocal
+    db = SessionLocal()
+    try:
+        for sql in migrations:
+            try:
+                db.execute(text(sql))
+            except Exception as e:
+                # Column may already exist under a different dialect — log and continue
+                logger.debug(f"Migration skipped (likely already applied): {e}")
+        db.commit()
+        logger.info("Database migrations applied successfully.")
+    except Exception as e:
+        logger.warning(f"Migration warning: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "app": settings.APP_NAME, "version": settings.APP_VERSION}
+
+
+@app.get("/")
+async def root():
     return {
-        "app": settings.APP_NAME,
+        "message": "Ahadu Bank Digital Banking Product Evaluation Platform",
         "version": settings.APP_VERSION,
-        "status": "running",
         "docs": "/docs",
     }
-
-
-@app.get("/health", tags=["Health"])
-def health():
-    from app.database import engine
-    from sqlalchemy import text
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        db_status = "connected"
-    except Exception as e:
-        db_status = f"unavailable: {e}"
-    return {"status": "ok", "database": db_status}
