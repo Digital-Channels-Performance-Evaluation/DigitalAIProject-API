@@ -12,16 +12,16 @@ venv/
 *.db
 
 # Node
-node_modules/
-.next/
-.nuxt/
-dist/
-npm-debug.log*
+frontend/node_modules/
+frontend/.next/
+frontend/.nuxt/
+frontend/dist/
+frontend/npm-debug.log*
 
 # frontend
 frontend/.env
 frontend/.env.local
-fronteend/node_modules/
+frontend/node_modules/
 
 # Environment
 .env
