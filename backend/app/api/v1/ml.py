@@ -1,250 +1,374 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import text as sql_text
-from pathlib import Path
-from datetime import datetime
-import pandas as pd
+from typing import List
 import logging
 
-from app.core.ml_pipeline import ml_pipeline, TIER_SCORE
-from app.core.deps import get_current_user, require_analyst
-from app.database import get_db
-from app import models, schemas
+from app.core.database import get_db
+from app.core.deps import require_roles, get_current_user
+from app.models.user import User
+from app.models.ml_models import ModelRegistry
+from app.schemas.ml import (
+    TrainRequest, TrainResponse, PredictRequest, PredictResponse,
+    RetrainRequest, ModelRegistryResponse, SimilarProductResponse,
+)
+from app.services.ml_service import ml_service
 
-router = APIRouter(prefix="/ml", tags=["Machine Learning"])
+router = APIRouter(prefix="/ml", tags=["ML / Model Management"])
 logger = logging.getLogger(__name__)
 
 
-# ── Background: train ─────────────────────────────────────────────────────────
-
-def _train_and_save(model_id: int, processed_file: str, model_type: str):
-    from app.database import SessionLocal
-    db = SessionLocal()
+@router.post("/train", response_model=TrainResponse)
+async def train_model(
+    payload: TrainRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer")),
+):
     try:
-        ml_model = db.query(models.MLModel).filter(models.MLModel.id == model_id).first()
-        if not ml_model:
-            return
+        if payload.model_type == "classification":
+            result = ml_service.train_classification(
+                db, hyperparams=payload.hyperparameters,
+                dataset_version=payload.dataset_version or "1.0.0",
+            )
+            return TrainResponse(
+                model_id=result["model_id"],
+                model_name="LogisticRegression_Classifier",
+                model_type="classification",
+                version=result["version"],
+                accuracy=result.get("accuracy"),
+                f1_score=result.get("f1_score"),
+                training_samples=result["training_samples"],
+                message=f"Classification model trained successfully. Accuracy: {result.get('accuracy', 0):.2%}",
+            )
+        elif payload.model_type == "regression":
+            result = ml_service.train_regression(
+                db, hyperparams=payload.hyperparameters,
+                dataset_version=payload.dataset_version or "1.0.0",
+            )
+            return TrainResponse(
+                model_id=result["model_id"],
+                model_name="Ridge_Regressor",
+                model_type="regression",
+                version=result["version"],
+                r2_score=result.get("r2_score"),
+                mae=result.get("mae"),
+                training_samples=result["training_samples"],
+                message=f"Regression model trained successfully. R²: {result.get('r2_score', 0):.4f}",
+            )
+        elif payload.model_type == "similarity":
+            result = ml_service.train_similarity(
+                db, hyperparams=payload.hyperparameters,
+                dataset_version=payload.dataset_version or "1.0.0",
+            )
+            return TrainResponse(
+                model_id=result["model_id"],
+                model_name="KNN_Similarity",
+                model_type="similarity",
+                version=result["version"],
+                training_samples=result["training_samples"],
+                message=f"KNN similarity model trained on {result['training_samples']} products.",
+            )
+        elif payload.model_type == "random_forest":
+            result = ml_service.train_random_forest(
+                db, hyperparams=payload.hyperparameters,
+                dataset_version=payload.dataset_version or "1.0.0",
+            )
+            return TrainResponse(
+                model_id=result["model_id"],
+                model_name="RandomForest_Classifier",
+                model_type="random_forest",
+                version=result["version"],
+                accuracy=result.get("accuracy"),
+                f1_score=result.get("f1_score"),
+                training_samples=result["training_samples"],
+                message=f"Random Forest trained. Accuracy: {result.get('accuracy', 0):.2%}  F1: {result.get('f1_score', 0):.4f}",
+            )
+        elif payload.model_type == "decision_tree":
+            result = ml_service.train_decision_tree(
+                db, hyperparams=payload.hyperparameters,
+                dataset_version=payload.dataset_version or "1.0.0",
+            )
+            return TrainResponse(
+                model_id=result["model_id"],
+                model_name="DecisionTree_Classifier",
+                model_type="decision_tree",
+                version=result["version"],
+                accuracy=result.get("accuracy"),
+                f1_score=result.get("f1_score"),
+                training_samples=result["training_samples"],
+                message=f"Decision Tree trained. Accuracy: {result.get('accuracy', 0):.2%}  F1: {result.get('f1_score', 0):.4f}",
+            )
+        elif payload.model_type == "gradient_boosting":
+            result = ml_service.train_gradient_boosting(
+                db, hyperparams=payload.hyperparameters,
+                dataset_version=payload.dataset_version or "1.0.0",
+            )
+            return TrainResponse(
+                model_id=result["model_id"],
+                model_name="GradientBoosting_Classifier",
+                model_type="gradient_boosting",
+                version=result["version"],
+                accuracy=result.get("accuracy"),
+                f1_score=result.get("f1_score"),
+                training_samples=result["training_samples"],
+                message=f"Gradient Boosting trained. Accuracy: {result.get('accuracy', 0):.2%}  F1: {result.get('f1_score', 0):.4f}",
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown model type: {payload.model_type}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-        result = ml_pipeline.train(
-            processed_file=Path(processed_file),
-            model_type=model_type,
-            model_name=f"model_{model_id}",
-        )
 
-        ml_model.status         = models.ModelStatus.ready
-        ml_model.model_path     = result["model_path"]
-        ml_model.accuracy       = result["accuracy"]
-        ml_model.precision_score = result["precision_score"]
-        ml_model.recall_score   = result["recall_score"]
-        ml_model.f1_score       = result["f1_score"]
-        ml_model.feature_importance = result["feature_importance"]
-        ml_model.training_params    = result["training_params"]
-        ml_model.updated_at     = datetime.utcnow()
-        db.commit()
-        logger.info(f"Model {model_id} ready — acc={result['accuracy']:.4f}")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Training failed for model {model_id}: {e}", exc_info=True)
-        ml_model = db.query(models.MLModel).filter(models.MLModel.id == model_id).first()
-        if ml_model:
-            ml_model.status = models.ModelStatus.failed
-            db.commit()
-    finally:
-        db.close()
-
-
-# ── Background: predict ───────────────────────────────────────────────────────
-
-def _run_predict_task(model_id: int, dataset_id: int,
-                      model_path: str, processed_file: str):
-    from app.database import SessionLocal
-    db = SessionLocal()
+@router.post("/predict", response_model=PredictResponse)
+async def predict(
+    payload: PredictRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer", "product_manager", "executive_management")),
+):
     try:
-        logger.info(f"Predict task started: model={model_id} dataset={dataset_id}")
-
-        pred_df = ml_pipeline.predict(
-            model_path=model_path,
-            processed_file=Path(processed_file),
-        )
-
-        # Delete old predictions for this combo
-        db.execute(
-            sql_text("DELETE FROM predictions WHERE model_id=:mid AND dataset_id=:did"),
-            {"mid": model_id, "did": dataset_id},
-        )
-        db.commit()
-
-        BATCH = 5000
-        total_saved = 0
-
-        for start in range(0, len(pred_df), BATCH):
-            chunk = pred_df.iloc[start:start + BATCH]
-            records = []
-            for _, row in chunk.iterrows():
-                label = row["prediction_label"]
-
-                metric_date = None
-                raw = row.get("metric_date")
-                if raw is not None:
-                    try:
-                        ts = pd.Timestamp(raw)
-                        metric_date = None if pd.isnull(ts) else ts.to_pydatetime()
-                    except Exception:
-                        pass
-
-                records.append(models.Prediction(
-                    dataset_id=dataset_id,
-                    model_id=model_id,
-                    product_id=str(row["product_id"]),
-                    metric_date=metric_date,
-                    prediction_label=label,
-                    confidence=float(row["confidence"]) if pd.notna(row.get("confidence")) else None,
-                    # Use actual performance_score if available, otherwise fall back to tier score
-                    predicted_value=(
-                        float(row["actual_score"])
-                        if "actual_score" in pred_df.columns and pd.notna(row.get("actual_score"))
-                        else float(TIER_SCORE.get(label, 0))
-                    ),
-                    actual_value=(
-                        float(row["actual_score"])
-                        if "actual_score" in pred_df.columns and pd.notna(row.get("actual_score"))
-                        else None
-                    ),
-                ))
-
-            db.bulk_save_objects(records)
-            db.commit()
-            total_saved += len(records)
-            logger.info(f"  Saved {total_saved:,}/{len(pred_df):,}")
-
-        logger.info(f"Predict task done: {total_saved:,} predictions for model {model_id}")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Predict task failed: {e}", exc_info=True)
-    finally:
-        db.close()
+        result = ml_service.predict(db, payload.product_id, payload.features)
+        return PredictResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+def _celery_worker_available() -> bool:
+    """Returns True if at least one Celery worker is reachable."""
+    try:
+        from app.tasks.celery_app import celery_app as _app
+        inspector = _app.control.inspect(timeout=1.0)
+        active = inspector.active()
+        return bool(active)
+    except Exception:
+        return False
 
-@router.post("/train", response_model=schemas.TrainResponse)
-def train_model(
-    request: schemas.TrainRequest,
-    background_tasks: BackgroundTasks,
+
+def _run_retrain_in_thread(model_types: list, dataset_version: str = "manual"):
+    """Fallback: run retraining in a background thread when Celery is unavailable."""
+    import threading
+    import uuid
+
+    fake_task_id = str(uuid.uuid4())
+
+    def _work():
+        from app.core.database import SessionLocal
+        db_bg = SessionLocal()
+        try:
+            ALL_TYPES = ["classification", "random_forest", "decision_tree",
+                         "gradient_boosting", "regression", "similarity"]
+            types = model_types or ALL_TYPES
+            for mt in types:
+                try:
+                    if mt == "classification":      ml_service.train_classification(db_bg, dataset_version=dataset_version)
+                    elif mt == "random_forest":     ml_service.train_random_forest(db_bg, dataset_version=dataset_version)
+                    elif mt == "decision_tree":     ml_service.train_decision_tree(db_bg, dataset_version=dataset_version)
+                    elif mt == "gradient_boosting": ml_service.train_gradient_boosting(db_bg, dataset_version=dataset_version)
+                    elif mt == "regression":        ml_service.train_regression(db_bg, dataset_version=dataset_version)
+                    elif mt == "similarity":        ml_service.train_similarity(db_bg, dataset_version=dataset_version)
+                except Exception as e:
+                    logger.warning(f"Thread retrain {mt} failed: {e}")
+            ml_service.select_best_model(db_bg)
+            logger.info("Thread-based retrain complete")
+        finally:
+            db_bg.close()
+
+    threading.Thread(target=_work, daemon=True).start()
+    return fake_task_id
+
+
+@router.post("/retrain")
+async def retrain_model(
+    payload: RetrainRequest,
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_analyst),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer")),
 ):
-    """Train an ML model on a processed dataset (background task)."""
-    dataset = db.query(models.Dataset).filter(models.Dataset.id == request.dataset_id).first()
-    if not dataset:
-        raise HTTPException(404, "Dataset not found")
-    if dataset.status != models.UploadStatus.completed:
-        raise HTTPException(400, f"Dataset not ready (status: {dataset.status})")
-    if not dataset.processed_file_path or not Path(dataset.processed_file_path).exists():
-        raise HTTPException(400, "Processed file not found on disk")
+    if payload.model_id:
+        model = db.query(ModelRegistry).filter(ModelRegistry.id == payload.model_id).first()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        model_type = model.model_type
+    elif payload.model_type:
+        model_type = payload.model_type
+    else:
+        raise HTTPException(status_code=400, detail="Provide model_id or model_type")
 
-    ml_model = models.MLModel(
-        name=f"{request.model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-        model_type=request.model_type,
-        target=request.target,
-        status=models.ModelStatus.training,
-        trained_on_dataset_id=request.dataset_id,
-    )
-    db.add(ml_model)
-    db.commit()
-    db.refresh(ml_model)
-
-    background_tasks.add_task(
-        _train_and_save, ml_model.id, dataset.processed_file_path, request.model_type
-    )
-
-    return schemas.TrainResponse(
-        status="training",
-        model_id=ml_model.id,
-        message=f"Training {request.model_type} started in background.",
-    )
+    if _celery_worker_available():
+        from app.tasks.ml_tasks import retrain_all_models
+        task = retrain_all_models.delay(dataset_version="manual", model_types=[model_type])
+        return {"message": f"Retraining {model_type} queued via Celery", "task_id": task.id, "reason": payload.reason, "mode": "celery"}
+    else:
+        task_id = _run_retrain_in_thread([model_type], dataset_version="manual")
+        return {"message": f"Retraining {model_type} started in background thread (no Celery worker)", "task_id": task_id, "reason": payload.reason, "mode": "thread"}
 
 
-@router.get("/models", response_model=list[schemas.MLModelResponse])
-def list_models(db: Session = Depends(get_db),
-                _: models.User = Depends(get_current_user)):
-    return db.query(models.MLModel).order_by(models.MLModel.created_at.desc()).all()
-
-
-@router.get("/models/{model_id}", response_model=schemas.MLModelResponse)
-def get_model(model_id: int, db: Session = Depends(get_db),
-              _: models.User = Depends(get_current_user)):
-    m = db.query(models.MLModel).filter(models.MLModel.id == model_id).first()
-    if not m:
-        raise HTTPException(404, "Model not found")
-    return m
-
-
-@router.post("/predict/{model_id}/{dataset_id}", response_model=schemas.PredictionListResponse)
-def run_predictions(
-    model_id: int,
-    dataset_id: int,
-    background_tasks: BackgroundTasks,
+@router.get("/models", response_model=List[ModelRegistryResponse])
+@router.get("/models/", response_model=List[ModelRegistryResponse])
+async def list_models(
     db: Session = Depends(get_db),
-    _: models.User = Depends(require_analyst),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer", "data_engineer")),
 ):
-    """Start predictions as a background task — returns immediately.
-    Poll GET /ml/predictions/{model_id} to get results."""
-    ml_model = db.query(models.MLModel).filter(models.MLModel.id == model_id).first()
-    if not ml_model or ml_model.status != models.ModelStatus.ready:
-        raise HTTPException(400, "Model not ready")
-
-    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
-    if not dataset or not dataset.processed_file_path:
-        raise HTTPException(404, "Processed dataset not found")
-    if not Path(dataset.processed_file_path).exists():
-        raise HTTPException(404, "Processed file not found on disk")
-
-    background_tasks.add_task(
-        _run_predict_task,
-        model_id, dataset_id,
-        ml_model.model_path,
-        dataset.processed_file_path,
-    )
-
-    return schemas.PredictionListResponse(
-        predictions=[], total=0, model_id=model_id,
-    )
+    return db.query(ModelRegistry).order_by(ModelRegistry.created_at.desc()).all()
 
 
-@router.get("/predictions/{model_id}", response_model=schemas.PredictionListResponse)
-def get_predictions(
-    model_id: int,
-    skip: int = 0,
-    limit: int = 1000,
-    product_id: str = None,
+@router.get("/drift")
+async def check_drift(
     db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer")),
 ):
-    """Get predictions for a model (paginated, optional product filter)."""
-    q = db.query(models.Prediction).filter(models.Prediction.model_id == model_id)
-    if product_id:
-        q = q.filter(models.Prediction.product_id == product_id)
+    return ml_service.detect_drift(db)
 
-    total = q.count()
-    preds = (
-        q.order_by(models.Prediction.product_id, models.Prediction.metric_date)
-        .offset(skip)
-        .limit(limit)
+
+@router.get("/similar/{product_id}", response_model=List[SimilarProductResponse])
+async def get_similar_products(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(
+        "super_admin", "ml_engineer", "product_manager", "executive_management"
+    )),
+):
+    from app.models.ml_models import SimilarProduct
+    from app.models.product import Product
+
+    similar = (
+        db.query(SimilarProduct)
+        .filter(SimilarProduct.product_id == product_id)
+        .order_by(SimilarProduct.similarity_score.desc())
         .all()
     )
-    return schemas.PredictionListResponse(predictions=preds, total=total, model_id=model_id)
+    result = []
+    for s in similar:
+        sp = db.query(Product).filter(Product.id == s.similar_product_id).first()
+        result.append(SimilarProductResponse(
+            product_id=s.product_id,
+            similar_product_id=s.similar_product_id,
+            similar_product_name=sp.name if sp else "N/A",
+            similarity_score=s.similarity_score,
+            cluster_id=s.cluster_id,
+        ))
+    return result
 
 
-@router.delete("/models/{model_id}")
-def delete_model(model_id: int, db: Session = Depends(get_db),
-                 _: models.User = Depends(require_analyst)):
-    m = db.query(models.MLModel).filter(models.MLModel.id == model_id).first()
-    if not m:
-        raise HTTPException(404, "Model not found")
-    db.query(models.Prediction).filter(
-        models.Prediction.model_id == model_id
-    ).delete(synchronize_session=False)
-    db.delete(m)
-    db.commit()
-    return {"message": f"Model {model_id} and all predictions deleted"}
+@router.post("/select-best")
+async def select_best_model(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer")),
+):
+    """
+    Automatically select the best classifier (lowest log_loss) and best regressor (lowest MAE)
+    from all trained models in the registry and promote them to active.
+    """
+    try:
+        result = ml_service.select_best_model(db)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/task/{task_id}")
+async def get_task_status(
+    task_id: str,
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer", "data_engineer")),
+):
+    """Poll the status of a training task. Works for both Celery tasks and thread-based fallback."""
+    try:
+        from celery.result import AsyncResult
+        from app.tasks.celery_app import celery_app as _celery
+        result = AsyncResult(task_id, app=_celery)
+        response: dict = {"task_id": task_id, "status": result.status, "mode": "celery"}
+        if result.status == "PROGRESS":
+            response["progress"] = result.info
+        elif result.status == "SUCCESS":
+            response["result"] = result.result
+        elif result.status == "FAILURE":
+            response["error"] = str(result.result)
+        return response
+    except Exception:
+        # Celery unavailable or task is thread-based — return a neutral in-progress status
+        return {"task_id": task_id, "status": "PROGRESS", "mode": "thread",
+                "progress": {"message": "Training running in background thread…"}}
+
+
+
+async def get_bulk_predictions(
+    product_ids: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Bulk 3-month predictions for multiple products in a single request.
+    Replaces N sequential /predictions/{id} calls with one round-trip.
+    product_ids: comma-separated list of product IDs, e.g. ?product_ids=1,2,3
+
+    IMPORTANT: this route must be declared BEFORE /predictions/{product_id}
+    so FastAPI matches 'bulk' here instead of treating it as an integer id.
+    """
+    try:
+        ids = [int(x.strip()) for x in product_ids.split(",") if x.strip().isdigit()]
+    except Exception:
+        raise HTTPException(status_code=400, detail="product_ids must be comma-separated integers")
+
+    if not ids:
+        return []
+    if len(ids) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 product IDs per bulk request")
+
+    results = []
+    for pid in ids:
+        try:
+            preds = ml_service.predict_3months(db, pid)
+            results.append({"product_id": pid, "predictions": preds})
+        except Exception:
+            results.append({"product_id": pid, "predictions": []})
+
+    return results
+
+
+@router.get("/predictions/{product_id}")
+async def get_3month_predictions(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate and return 3-month forward predictions for a product."""
+    try:
+        predictions = ml_service.predict_3months(db, product_id)
+        return {"product_id": product_id, "predictions": predictions}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/insights")
+@router.get("/insights/")
+async def get_executive_insights(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate AI executive insights from actual uploaded dataset.
+    Insights change dynamically based on latest data.
+    """
+    try:
+        insights = ml_service.generate_executive_insights(db)
+        return {"insights": insights, "count": len(insights)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/train-all")
+@router.post("/train-all/")
+async def train_all_models(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer", "data_engineer")),
+):
+    """
+    Train all 6 model types, then auto-select the best.
+    Uses Celery if a worker is running, otherwise falls back to a background thread.
+    """
+    if _celery_worker_available():
+        from app.tasks.ml_tasks import retrain_all_models
+        task = retrain_all_models.delay(dataset_version="manual_train_all")
+        return {"message": "Full retrain queued via Celery.", "task_id": task.id, "mode": "celery"}
+    else:
+        task_id = _run_retrain_in_thread([], dataset_version="manual_train_all")
+        return {"message": "Full retrain started in background thread (no Celery worker running).", "task_id": task_id, "mode": "thread"}
