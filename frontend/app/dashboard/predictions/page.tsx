@@ -48,11 +48,9 @@ export default function PredictionsPage() {
     else setRefreshing(true);
 
     try {
-      // Step 1: load product list with current scores
       const productsRes = await api.get("/products");
       const productList = productsRes.data;
 
-      // Build initial state
       const initialData: ProductPredictions[] = productList.map((p: any) => ({
         product_id: p.id,
         product_name: p.name,
@@ -67,24 +65,25 @@ export default function PredictionsPage() {
       setLoading(false);
       setRefreshing(false);
 
-      // Step 2: load predictions for each product in parallel
-      const predResults = await Promise.allSettled(
-        productList.map((p: any) =>
-          api.get(`/ml/predictions/${p.id}`).then(r => ({ id: p.id, data: r.data.predictions }))
-        )
-      );
+      if (productList.length === 0) return;
 
-      setProducts(prev =>
-        prev.map(p => {
-          const result = predResults.find(
-            r => r.status === "fulfilled" && (r.value as any).id === p.product_id
-          );
-          if (result && result.status === "fulfilled") {
-            return { ...p, predictions: (result.value as any).data || [], loading: false };
-          }
-          return { ...p, loading: false, error: true };
-        })
-      );
+      // Use bulk endpoint — one request for all products
+      const ids = productList.map((p: any) => p.id).join(",");
+      try {
+        const bulkRes = await api.get(`/ml/predictions/bulk?product_ids=${ids}`);
+        const bulkData: Array<{ product_id: number; predictions: any[] }> = bulkRes.data;
+        setProducts(prev =>
+          prev.map(p => {
+            const entry = bulkData.find(b => b.product_id === p.product_id);
+            return entry
+              ? { ...p, predictions: entry.predictions || [], loading: false }
+              : { ...p, loading: false, error: true };
+          })
+        );
+      } catch {
+        // Fallback: mark all as errored
+        setProducts(prev => prev.map(p => ({ ...p, loading: false, error: true })));
+      }
     } catch {
       if (!silent) toast.error("Failed to load predictions");
       setLoading(false);
@@ -93,7 +92,7 @@ export default function PredictionsPage() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-  useRefresh(() => loadAll(true));
+  useRefresh(loadAll);
 
   const TrendIcon = ({ dir }: { dir: string }) => {
     if (dir === "improving") return <TrendingUp size={13} className="text-green-600" />;
@@ -188,7 +187,13 @@ export default function PredictionsPage() {
                       <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />
                     ))}
                   </div>
-                ) : p.error || p.predictions.length === 0 ? (
+                ) : p.error ? (
+                  <div className="text-center py-6">
+                    <Zap size={20} className="text-red-300 mx-auto mb-2" />
+                    <p className="text-xs text-red-500 font-medium">Failed to load predictions.</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Check that models are trained.</p>
+                  </div>
+                ) : p.predictions.length === 0 ? (
                   <div className="text-center py-6">
                     <Zap size={20} className="text-gray-300 mx-auto mb-2" />
                     <p className="text-xs text-gray-400">No predictions available.</p>
@@ -212,9 +217,9 @@ export default function PredictionsPage() {
                       {p.predictions.map(pred => {
                         const tc = TIER_COLOR[pred.predicted_tier] ?? "#374151";
                         const tb = TIER_BG[pred.predicted_tier] ?? "#F9FAFB";
-                        const growthPct = p.current_score
+                        const growthPct = (p.current_score != null && p.current_score > 0)
                           ? ((pred.predicted_score - p.current_score) / p.current_score * 100)
-                          : 0;
+                          : null;
                         return (
                           <div key={pred.horizon_months}
                                className="rounded-xl border p-3 text-center"
@@ -238,7 +243,7 @@ export default function PredictionsPage() {
                             <div className="mt-2 text-[9px] text-gray-400">
                               {(pred.confidence * 100).toFixed(0)}% conf.
                             </div>
-                            {growthPct !== 0 && (
+                            {growthPct != null && growthPct !== 0 && (
                               <div className={`mt-1 text-[9px] font-semibold ${
                                 growthPct > 0 ? "text-green-700" : "text-red-600"
                               }`}>

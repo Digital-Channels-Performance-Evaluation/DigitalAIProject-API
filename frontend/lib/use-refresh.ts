@@ -1,9 +1,9 @@
 /**
  * useRefresh — subscribes a component's reload function to the global refreshBus.
  *
- * Works across all Next.js pages because it uses both:
- * - CustomEvent (same-tab immediate sync)
- * - localStorage `storage` event (cross-tab and post-navigation sync)
+ * Uses only the CustomEvent mechanism (same-tab). The storage event is intentionally
+ * omitted here — it fires cross-tab only in browsers, so there's no double-fire risk,
+ * but adding it caused duplicate loads in the same tab via manual listeners elsewhere.
  *
  * Usage:
  *   const load = useCallback(async () => { ... fetch data ... }, []);
@@ -15,28 +15,21 @@
 import { useEffect, useRef } from "react";
 import { refreshBus } from "./refresh-bus";
 
-export function useRefresh(reloadFn: () => void) {
-  // Keep a ref so the stable cleanup always calls the latest version
+/**
+ * useRefresh — fires `reloadFn(true)` when data is uploaded.
+ * Always passes `true` (silent=true) so pages refresh in background
+ * without showing the full loading skeleton.
+ */
+export function useRefresh(reloadFn: (silent?: boolean) => void) {
   const fnRef = useRef(reloadFn);
   useEffect(() => { fnRef.current = reloadFn; }, [reloadFn]);
 
   useEffect(() => {
-    const handler = () => fnRef.current();
-
-    // Subscribe to in-tab custom event — returns cleanup fn
+    // Pass true so callers that accept a `silent` param skip the loading spinner
+    const handler = () => fnRef.current(true);
     const cleanup = refreshBus.on(handler);
-
-    // Also subscribe to storage events for cross-tab / post-navigation sync
-    const storageHandler = (e: StorageEvent) => {
-      if (e.key === "ahadu_last_refresh") {
-        fnRef.current();
-      }
-    };
-    window.addEventListener("storage", storageHandler);
-
     return () => {
       if (typeof cleanup === "function") cleanup();
-      window.removeEventListener("storage", storageHandler);
     };
-  }, []); // empty deps — register once
+  }, []);
 }

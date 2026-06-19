@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 
 from app.core.database import get_db
@@ -23,16 +24,33 @@ async def list_products(
     if not include_inactive:
         query = query.filter(Product.is_active == True)
     products = query.all()
+    if not products:
+        return []
+
+    product_ids = [p.id for p in products]
+
+    # Single query: latest score per product (same pattern as rankings.py)
+    latest_dates_sq = (
+        db.query(Score.product_id, func.max(Score.period_date).label("max_date"))
+        .filter(Score.product_id.in_(product_ids))
+        .group_by(Score.product_id)
+        .subquery()
+    )
+    latest_scores = (
+        db.query(Score)
+        .join(
+            latest_dates_sq,
+            (Score.product_id == latest_dates_sq.c.product_id)
+            & (Score.period_date == latest_dates_sq.c.max_date),
+        )
+        .all()
+    )
+    score_map = {s.product_id: s for s in latest_scores}
 
     result = []
     for p in products:
-        latest_score = (
-            db.query(Score)
-            .filter(Score.product_id == p.id)
-            .order_by(Score.period_date.desc())
-            .first()
-        )
-        item = ProductWithScore(
+        s = score_map.get(p.id)
+        result.append(ProductWithScore(
             id=p.id,
             name=p.name,
             code=p.code,
@@ -41,11 +59,10 @@ async def list_products(
             is_active=p.is_active,
             launch_date=p.launch_date,
             created_at=p.created_at,
-            current_score=latest_score.performance_score if latest_score else None,
-            current_tier=latest_score.performance_tier if latest_score else None,
-            score_change=latest_score.score_change if latest_score else None,
-        )
-        result.append(item)
+            current_score=s.performance_score if s else None,
+            current_tier=s.performance_tier if s else None,
+            score_change=s.score_change if s else None,
+        ))
     return result
 
 

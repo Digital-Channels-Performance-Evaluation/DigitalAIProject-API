@@ -1,4 +1,4 @@
-// File: A:\ML Model project\AHADU PULSE\frontend\app\dashboard\settings\page.tsx
+// File: G:\Projects\ahadu_pulse\frontend\app\dashboard\settings\page.tsx
 import * as entry from '../../../../../app/dashboard/settings/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

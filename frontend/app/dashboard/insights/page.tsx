@@ -12,34 +12,25 @@ interface Insight {
   insight: string;
 }
 
-const TYPE_STYLE: Record<string, { border: string; bg: string; icon: any; label: string; textColor: string }> = {
+const TYPE_STYLE: Record<string, {
+  border: string; bg: string; icon: any;
+  label: string; textColor: string; iconBg: string;
+}> = {
   positive: {
-    border: "border-l-4 border-green-500",
-    bg: "bg-green-50",
-    icon: TrendingUp,
-    label: "Positive",
-    textColor: "text-green-700",
+    border: "border-l-4 border-green-500", bg: "bg-green-50",
+    icon: TrendingUp, label: "Positive", textColor: "text-green-700", iconBg: "bg-green-100",
   },
   warning: {
-    border: "border-l-4 border-amber-500",
-    bg: "bg-amber-50",
-    icon: AlertTriangle,
-    label: "Action Needed",
-    textColor: "text-amber-700",
+    border: "border-l-4 border-amber-500", bg: "bg-amber-50",
+    icon: AlertTriangle, label: "Action Needed", textColor: "text-amber-700", iconBg: "bg-amber-100",
   },
   critical: {
-    border: "border-l-4 border-red-600",
-    bg: "bg-red-50",
-    icon: AlertTriangle,
-    label: "Critical",
-    textColor: "text-red-700",
+    border: "border-l-4 border-red-600", bg: "bg-red-50",
+    icon: AlertTriangle, label: "Critical", textColor: "text-red-700", iconBg: "bg-red-100",
   },
   summary: {
-    border: "border-l-4 border-[#9B1535]",
-    bg: "bg-[#FBF0F3]",
-    icon: BarChart3,
-    label: "Platform Summary",
-    textColor: "text-[#7A0E28]",
+    border: "border-l-4 border-[#9B1535]", bg: "bg-[#FBF0F3]",
+    icon: BarChart3, label: "Platform Summary", textColor: "text-[#7A0E28]", iconBg: "bg-[#F6D9E1]",
   },
 };
 
@@ -65,7 +56,7 @@ export default function InsightsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useRefresh(() => load(true));
+  useRefresh(load);
 
   const summary   = insights.filter(i => i.type === "summary");
   const critical  = insights.filter(i => i.type === "critical");
@@ -78,8 +69,7 @@ export default function InsightsPage() {
     return (
       <div className={`rounded-xl border ${style.border} ${style.bg} p-4`}>
         <div className="flex items-start gap-3">
-          <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5`}
-               style={{ background: `${style.textColor.replace("text-", "")}15` }}>
+          <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5 ${style.iconBg}`}>
             <Icon size={14} className={style.textColor} />
           </div>
           <div className="flex-1">
@@ -136,13 +126,12 @@ export default function InsightsPage() {
             <Sparkles size={32} className="text-gray-300 mx-auto mb-3" />
             <p className="text-gray-400 text-sm font-medium">No insights available yet.</p>
             <p className="text-gray-300 text-xs mt-1">
-              Upload a dataset and run Feature Engineering to generate AI insights.
+              Upload a dataset to generate AI insights.
             </p>
           </div>
         ) : (
           <div className="space-y-5">
 
-            {/* Platform summary */}
             {summary.length > 0 && (
               <div>
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -155,7 +144,6 @@ export default function InsightsPage() {
               </div>
             )}
 
-            {/* Critical insights */}
             {critical.length > 0 && (
               <div>
                 <h3 className="text-xs font-bold text-red-600 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -168,7 +156,6 @@ export default function InsightsPage() {
               </div>
             )}
 
-            {/* Warning insights */}
             {warnings.length > 0 && (
               <div>
                 <h3 className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -181,7 +168,6 @@ export default function InsightsPage() {
               </div>
             )}
 
-            {/* Positive insights */}
             {positives.length > 0 && (
               <div>
                 <h3 className="text-xs font-bold text-green-700 uppercase tracking-widest mb-3 flex items-center gap-2">

@@ -28,6 +28,8 @@ PRODUCTS_SEED = [
      "description": "QR code-based payment solution for retail transactions"},
     {"name": "Ahadu Digital Wallet", "code": "WALLET_01", "category": "digital_wallet",
      "description": "E-wallet for peer-to-peer transfers and digital payments"},
+    {"name": "Ahadu USSD Banking", "code": "USSD_01", "category": "ussd",
+     "description": "Unstructured Supplementary Service Data banking for feature phone users"},
 ]
 
 USERS_SEED = [
@@ -82,6 +84,12 @@ PRODUCT_PROFILES = {
         "base_success": 0.978, "base_csat": 3.98, "complaint_rate": 1.8,
         "fraud_base": 3, "api_error_base": 1.1,
         "trend": "stable",
+    },
+    "USSD_01": {
+        "base_users": 195000, "base_revenue": 4200000, "base_uptime": 97.8,
+        "base_success": 0.941, "base_csat": 3.35, "complaint_rate": 4.2,
+        "fraud_base": 2, "api_error_base": 2.8,
+        "trend": "improving",         # growing as feature-phone reach expands
     },
 }
 

@@ -82,31 +82,33 @@ export default function DashboardPage() {
       setRankings(rankData);
       setAlerts(alertsRes.data);
 
-      // Load 3-month forecasts for top 6 products (non-blocking)
-      Promise.allSettled(
-        rankData.slice(0, 6).map(r =>
-          api.get(`/ml/predictions/${r.product_id}`)
-            .then(res => ({ r, preds: res.data.predictions || [] }))
-        )
-      ).then(results => {
-        const items: ForecastItem[] = results
-          .filter(r => r.status === "fulfilled")
-          .map(r => {
-            const { r: rank, preds } = (r as any).value;
-            const [m1, m2, m3] = preds;
-            const lastTrend = m3?.trend_direction || m1?.trend_direction || "stable";
-            return {
-              product_id: rank.product_id,
-              product_name: rank.product_name,
-              current_score: rank.performance_score,
-              m1: m1?.predicted_score ?? null,
-              m2: m2?.predicted_score ?? null,
-              m3: m3?.predicted_score ?? null,
-              trend: lastTrend,
-            };
-          });
-        setForecasts(items);
-      });
+      // Load 3-month forecasts for top 6 products — single bulk request
+      const top6 = rankData.slice(0, 6);
+      if (top6.length > 0) {
+        const ids = top6.map(r => r.product_id).join(",");
+        api.get(`/ml/predictions/bulk?product_ids=${ids}`)
+          .then(res => {
+            const bulkResults: Array<{ product_id: number; predictions: any[] }> = res.data;
+            const items: ForecastItem[] = bulkResults
+              .map(entry => {
+                const rank = top6.find(r => r.product_id === entry.product_id);
+                if (!rank) return null;
+                const [m1, m2, m3] = entry.predictions || [];
+                return {
+                  product_id: rank.product_id,
+                  product_name: rank.product_name,
+                  current_score: rank.performance_score,
+                  m1: m1?.predicted_score ?? null,
+                  m2: m2?.predicted_score ?? null,
+                  m3: m3?.predicted_score ?? null,
+                  trend: m3?.trend_direction || m1?.trend_direction || "stable",
+                };
+              })
+              .filter(Boolean) as ForecastItem[];
+            setForecasts(items);
+          })
+          .catch(() => {/* forecasts are non-critical — fail silently */});
+      }
     } catch {
       toast.error("Failed to load dashboard data");
     } finally {

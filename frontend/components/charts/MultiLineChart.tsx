@@ -42,14 +42,25 @@ function groupByProduct(data: DataPoint[]) {
   const map: Record<string, Record<string, number>> = {};
   const productSet: Set<string> = new Set();
 
+  // Determine whether to bucket by day or by month based on date span
+  const dates = data.map(d => d.date).filter(Boolean).sort();
+  const firstMonth = dates[0]?.slice(0, 7);
+  const lastMonth  = dates[dates.length - 1]?.slice(0, 7);
+  const bucketByDay = firstMonth === lastMonth; // all in same month → use full date
+
   data.forEach((d) => {
     const name = d.product_name || (d.product_id ? `Product ${d.product_id}` : null);
     if (!name || !d.date) return;
-    const month = d.date.slice(0, 7);
-    if (!month) return;
+    const key = bucketByDay ? d.date : d.date.slice(0, 7);
+    if (!key) return;
     productSet.add(name);
-    if (!map[month]) map[month] = {};
-    map[month][name] = Number(d.value) || 0;
+    if (!map[key]) map[key] = {};
+    // If multiple records per bucket, take the latest (last wins)
+    if (map[key][name] === undefined) {
+      map[key][name] = Number(d.value) || 0;
+    } else {
+      map[key][name] = Number(d.value) || 0;
+    }
   });
 
   const products = Array.from(productSet).sort();

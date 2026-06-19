@@ -33,6 +33,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_mfa_enabled = Column(Boolean, default=False)
     mfa_secret = Column(String(255), nullable=True)
+    # Profile photo — stored as relative URL path e.g. /uploads/avatars/42.jpg
+    avatar_url = Column(String(512), nullable=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

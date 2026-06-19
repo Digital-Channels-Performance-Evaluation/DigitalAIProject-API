@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, TrendingUp, TrendingDown, Minus,
@@ -10,7 +10,7 @@ import TierBadge from "@/components/dashboard/TierBadge";
 import PerformanceTrendChart from "@/components/charts/PerformanceTrendChart";
 import api from "@/lib/api";
 import { formatScore, formatCategoryName } from "@/lib/utils";
-import { refreshBus } from "@/lib/refresh-bus";
+import { useRefresh } from "@/lib/use-refresh";
 import { toast } from "sonner";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -121,34 +121,15 @@ export default function ProductDetailPage() {
   /* ── Initial load ───────────────────────────────────────────────────── */
   useEffect(() => {
     fetchAll(false);
-  }, [fetchAll]);
-
-  /* ── Auto-load predictions once product data is ready ──────────────── */
-  const predLoadedRef = useRef(false);
-  useEffect(() => {
-    if (product && !predLoadedRef.current) {
-      predLoadedRef.current = true;
-      fetchPredictions();
-    }
-  }, [product, fetchPredictions]);
-
-  /* ── Subscribe to global refresh bus (upload → engineer → emit) ─────── */
-  useEffect(() => {
-    const handler = () => {
-      fetchAll(true);          // refresh all data in background
-      fetchPredictions();      // refresh predictions too
-      predLoadedRef.current = true;
-    };
-    const cleanup = refreshBus.on(handler);
-    const storageHandler = (e: StorageEvent) => {
-      if (e.key === "ahadu_last_refresh") handler();
-    };
-    window.addEventListener("storage", storageHandler);
-    return () => {
-      if (typeof cleanup === "function") cleanup();
-      window.removeEventListener("storage", storageHandler);
-    };
+    fetchPredictions();
   }, [fetchAll, fetchPredictions]);
+
+  /* ── Refresh when data is uploaded ─────────────────────────────────── */
+  const handleRefresh = useCallback(() => {
+    fetchAll(true);
+    fetchPredictions();
+  }, [fetchAll, fetchPredictions]);
+  useRefresh(handleRefresh);
 
   /* ── Loading skeleton ───────────────────────────────────────────────── */
   if (loading) {
@@ -389,8 +370,9 @@ export default function ProductDetailPage() {
                 </div>
 
                 {predictions.length === 3 && (() => {
-                  const [s0, , s2] = predictions.map(p => p.predicted_score);
-                  const delta = s2 - s0;
+                  const currentScore = latestScore?.performance_score ?? predictions[0].predicted_score;
+                  const s2    = predictions[2].predicted_score;
+                  const delta = s2 - currentScore;
                   const msg = delta > 3
                     ? `Improving — score expected to rise by ${delta.toFixed(1)} pts over 3 months.`
                     : delta < -3

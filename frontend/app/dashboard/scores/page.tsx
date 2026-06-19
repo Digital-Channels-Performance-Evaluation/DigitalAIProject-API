@@ -85,6 +85,12 @@ export default function ScoresPage() {
                     <td key={j} className="px-4 py-3"><div className="h-3 bg-gray-100 rounded animate-pulse" /></td>
                   ))}</tr>
                 ))
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
+                    No scores found. Upload data and run feature engineering to generate scores.
+                  </td>
+                </tr>
               ) : filtered.map((s) => (
                 <tr key={s.id} className="hover:bg-gray-50 transition">
                   <td className="px-4 py-3 text-xs font-medium text-gray-900">{products[s.product_id] || `Product ${s.product_id}`}</td>

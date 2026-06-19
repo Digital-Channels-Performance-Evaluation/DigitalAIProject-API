@@ -11,7 +11,7 @@ import pandas as pd
 
 from gen_test_files_final import PRODUCTS, make_row
 
-OUT = Path(r"a:\ML Model project\AHADU PULSE\database\sample_data.csv")
+OUT = Path(__file__).parent / "database" / "sample_data.csv"
 
 # Column order matches existing sample_data.csv and data_service ingest schema
 COLS_CSV = [

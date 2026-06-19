@@ -105,7 +105,12 @@ class FeatureEngineeringService:
         f["fraud_event_count"]        = raw.fraud_event_count
         f["security_incident_count"]  = raw.security_incident_count
         f["api_error_rate"]           = raw.api_error_rate
-        f["avg_session_duration_sec"] = raw.avg_response_time_ms
+
+        # avg_session_duration_sec: use the dedicated column if present,
+        # otherwise leave as None — do NOT fall back to avg_response_time_ms,
+        # which is in milliseconds and has completely different semantics.
+        # The ML model will default to 0.0 for missing values via the alias map.
+        f["avg_session_duration_sec"] = getattr(raw, "avg_session_duration_sec", None)
 
         return f
 

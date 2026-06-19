@@ -38,13 +38,13 @@ async def get_monthly_report(
 
 
 def _generate_report(db, start, end, report_type, format, current_user):
-    # Use a 2-year lookback as fallback so reports always contain data
-    # even when the configured period has no records (e.g. historical seed data)
+    # Always use full data range so reports include historical uploads.
+    # `start`/`end` are used only in the filename; the service queries all data.
     from datetime import date as _date
-    lookback_start = _date(2020, 1, 1)   # far enough back to cover all seeded data
+    data_start = _date(2020, 1, 1)  # covers all seeded + uploaded records
 
     if format == "pdf":
-        content = report_service.generate_pdf_report(db, lookback_start, end, report_type)
+        content = report_service.generate_pdf_report(db, data_start, end, report_type)
         return Response(
             content=content,
             media_type="application/pdf",
@@ -52,7 +52,7 @@ def _generate_report(db, start, end, report_type, format, current_user):
                      f"attachment; filename=ahadu_{report_type}_report_{start}_{end}.pdf"},
         )
     elif format == "excel":
-        content = report_service.generate_excel_report(db, lookback_start, end, report_type)
+        content = report_service.generate_excel_report(db, data_start, end, report_type)
         return Response(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

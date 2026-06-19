@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import logging
 
 from app.core.database import get_db
 from app.core.deps import require_roles, get_current_user
@@ -13,6 +14,7 @@ from app.schemas.ml import (
 from app.services.ml_service import ml_service
 
 router = APIRouter(prefix="/ml", tags=["ML / Model Management"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/train", response_model=TrainResponse)
@@ -129,10 +131,53 @@ async def predict(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _celery_worker_available() -> bool:
+    """Returns True if at least one Celery worker is reachable."""
+    try:
+        from app.tasks.celery_app import celery_app as _app
+        inspector = _app.control.inspect(timeout=1.0)
+        active = inspector.active()
+        return bool(active)
+    except Exception:
+        return False
+
+
+def _run_retrain_in_thread(model_types: list, dataset_version: str = "manual"):
+    """Fallback: run retraining in a background thread when Celery is unavailable."""
+    import threading
+    import uuid
+
+    fake_task_id = str(uuid.uuid4())
+
+    def _work():
+        from app.core.database import SessionLocal
+        db_bg = SessionLocal()
+        try:
+            ALL_TYPES = ["classification", "random_forest", "decision_tree",
+                         "gradient_boosting", "regression", "similarity"]
+            types = model_types or ALL_TYPES
+            for mt in types:
+                try:
+                    if mt == "classification":      ml_service.train_classification(db_bg, dataset_version=dataset_version)
+                    elif mt == "random_forest":     ml_service.train_random_forest(db_bg, dataset_version=dataset_version)
+                    elif mt == "decision_tree":     ml_service.train_decision_tree(db_bg, dataset_version=dataset_version)
+                    elif mt == "gradient_boosting": ml_service.train_gradient_boosting(db_bg, dataset_version=dataset_version)
+                    elif mt == "regression":        ml_service.train_regression(db_bg, dataset_version=dataset_version)
+                    elif mt == "similarity":        ml_service.train_similarity(db_bg, dataset_version=dataset_version)
+                except Exception as e:
+                    logger.warning(f"Thread retrain {mt} failed: {e}")
+            ml_service.select_best_model(db_bg)
+            logger.info("Thread-based retrain complete")
+        finally:
+            db_bg.close()
+
+    threading.Thread(target=_work, daemon=True).start()
+    return fake_task_id
+
+
 @router.post("/retrain")
 async def retrain_model(
     payload: RetrainRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("super_admin", "ml_engineer")),
 ):
@@ -146,28 +191,13 @@ async def retrain_model(
     else:
         raise HTTPException(status_code=400, detail="Provide model_id or model_type")
 
-    # Retrain in background
-    def do_retrain():
-        from app.core.database import SessionLocal
-        db_bg = SessionLocal()
-        try:
-            if model_type == "classification":
-                ml_service.train_classification(db_bg)
-            elif model_type == "regression":
-                ml_service.train_regression(db_bg)
-            elif model_type == "similarity":
-                ml_service.train_similarity(db_bg)
-            elif model_type == "random_forest":
-                ml_service.train_random_forest(db_bg)
-            elif model_type == "decision_tree":
-                ml_service.train_decision_tree(db_bg)
-            elif model_type == "gradient_boosting":
-                ml_service.train_gradient_boosting(db_bg)
-        finally:
-            db_bg.close()
-
-    background_tasks.add_task(do_retrain)
-    return {"message": f"Retraining {model_type} model started in background", "reason": payload.reason}
+    if _celery_worker_available():
+        from app.tasks.ml_tasks import retrain_all_models
+        task = retrain_all_models.delay(dataset_version="manual", model_types=[model_type])
+        return {"message": f"Retraining {model_type} queued via Celery", "task_id": task.id, "reason": payload.reason, "mode": "celery"}
+    else:
+        task_id = _run_retrain_in_thread([model_type], dataset_version="manual")
+        return {"message": f"Retraining {model_type} started in background thread (no Celery worker)", "task_id": task_id, "reason": payload.reason, "mode": "thread"}
 
 
 @router.get("/models", response_model=List[ModelRegistryResponse])
@@ -233,16 +263,72 @@ async def select_best_model(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/task/{task_id}")
+async def get_task_status(
+    task_id: str,
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer", "data_engineer")),
+):
+    """Poll the status of a training task. Works for both Celery tasks and thread-based fallback."""
+    try:
+        from celery.result import AsyncResult
+        from app.tasks.celery_app import celery_app as _celery
+        result = AsyncResult(task_id, app=_celery)
+        response: dict = {"task_id": task_id, "status": result.status, "mode": "celery"}
+        if result.status == "PROGRESS":
+            response["progress"] = result.info
+        elif result.status == "SUCCESS":
+            response["result"] = result.result
+        elif result.status == "FAILURE":
+            response["error"] = str(result.result)
+        return response
+    except Exception:
+        # Celery unavailable or task is thread-based — return a neutral in-progress status
+        return {"task_id": task_id, "status": "PROGRESS", "mode": "thread",
+                "progress": {"message": "Training running in background thread…"}}
+
+
+
+async def get_bulk_predictions(
+    product_ids: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Bulk 3-month predictions for multiple products in a single request.
+    Replaces N sequential /predictions/{id} calls with one round-trip.
+    product_ids: comma-separated list of product IDs, e.g. ?product_ids=1,2,3
+
+    IMPORTANT: this route must be declared BEFORE /predictions/{product_id}
+    so FastAPI matches 'bulk' here instead of treating it as an integer id.
+    """
+    try:
+        ids = [int(x.strip()) for x in product_ids.split(",") if x.strip().isdigit()]
+    except Exception:
+        raise HTTPException(status_code=400, detail="product_ids must be comma-separated integers")
+
+    if not ids:
+        return []
+    if len(ids) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 product IDs per bulk request")
+
+    results = []
+    for pid in ids:
+        try:
+            preds = ml_service.predict_3months(db, pid)
+            results.append({"product_id": pid, "predictions": preds})
+        except Exception:
+            results.append({"product_id": pid, "predictions": []})
+
+    return results
+
+
 @router.get("/predictions/{product_id}")
 async def get_3month_predictions(
     product_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate and return 3-month forward predictions for a product.
-    Uses momentum-based projection on the latest feature vector.
-    """
+    """Generate and return 3-month forward predictions for a product."""
     try:
         predictions = ml_service.predict_3months(db, product_id)
         return {"product_id": product_id, "predictions": predictions}
@@ -272,40 +358,17 @@ async def get_executive_insights(
 @router.post("/train-all")
 @router.post("/train-all/")
 async def train_all_models(
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("super_admin", "ml_engineer", "data_engineer")),
 ):
     """
-    Train all 5 model types in sequence, then auto-select the best.
-    Triggered automatically after each data upload pipeline.
+    Train all 6 model types, then auto-select the best.
+    Uses Celery if a worker is running, otherwise falls back to a background thread.
     """
-    def do_train_all():
-        from app.core.database import SessionLocal
-        db_bg = SessionLocal()
-        try:
-            for model_type in ["classification", "random_forest", "decision_tree",
-                                "gradient_boosting", "regression", "similarity"]:
-                try:
-                    if model_type == "classification":
-                        ml_service.train_classification(db_bg)
-                    elif model_type == "random_forest":
-                        ml_service.train_random_forest(db_bg)
-                    elif model_type == "decision_tree":
-                        ml_service.train_decision_tree(db_bg)
-                    elif model_type == "gradient_boosting":
-                        ml_service.train_gradient_boosting(db_bg)
-                    elif model_type == "regression":
-                        ml_service.train_regression(db_bg)
-                    elif model_type == "similarity":
-                        ml_service.train_similarity(db_bg)
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"Train-all: {model_type} failed: {e}")
-            # Auto-select best after all trained
-            ml_service.select_best_model(db_bg)
-        finally:
-            db_bg.close()
-
-    background_tasks.add_task(do_train_all)
-    return {"message": "Training all 5 model types + auto-select in background"}
+    if _celery_worker_available():
+        from app.tasks.ml_tasks import retrain_all_models
+        task = retrain_all_models.delay(dataset_version="manual_train_all")
+        return {"message": "Full retrain queued via Celery.", "task_id": task.id, "mode": "celery"}
+    else:
+        task_id = _run_retrain_in_thread([], dataset_version="manual_train_all")
+        return {"message": "Full retrain started in background thread (no Celery worker running).", "task_id": task_id, "mode": "thread"}

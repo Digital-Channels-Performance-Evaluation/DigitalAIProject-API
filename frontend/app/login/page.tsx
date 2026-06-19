@@ -3,15 +3,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth-store";
 import AhaduLogo from "@/components/AhaduLogo";
-import { User, Lock, ArrowRight } from "lucide-react";
+import { User, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 export default function LoginPage() {
-  const [email, setEmail]     = useState("");
-  const [password, setPassword] = useState("");
-  const [mfaCode, setMfaCode] = useState("");
-  const [showMfa, setShowMfa] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail]       = useState("");
+  const [password, setPassword]   = useState("");
+  const [showPw, setShowPw]       = useState(false);
+  const [mfaCode, setMfaCode]     = useState("");
+  const [showMfa, setShowMfa]     = useState(false);
+  const [loading, setLoading]     = useState(false);
   const { login } = useAuthStore();
   const router    = useRouter();
 
@@ -60,13 +61,13 @@ export default function LoginPage() {
                 <AhaduLogo size={32} />
               </div>
               <span className="text-white text-sm font-semibold tracking-wide">
-                Ahadu Plus
+                Ahadu Pulse
               </span>
             </div>
 
             {/* Bank name + description */}
             <h1 className="text-3xl font-black text-white leading-tight mb-3">
-              Ahadu Plus
+              Ahadu Pulse
             </h1>
             <p className="text-white/65 text-sm leading-relaxed">
               AI-powered digital banking product evaluation platform for real-time
@@ -134,16 +135,25 @@ export default function LoginPage() {
               <div className="relative">
                 <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="password"
+                  type={showPw ? "text" : "password"}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-gray-700
+                  className="w-full pl-10 pr-10 py-3 rounded-xl text-sm text-gray-700
                              bg-gray-100 border-0 focus:outline-none focus:ring-2
                              focus:bg-white transition placeholder:text-gray-400"
                   style={{ "--tw-ring-color": "#9B1535" } as React.CSSProperties}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(v => !v)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400
+                             hover:text-gray-600 transition"
+                  tabIndex={-1}
+                >
+                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
             </div>
 

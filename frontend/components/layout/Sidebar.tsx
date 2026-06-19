@@ -6,32 +6,106 @@ import { cn, formatRoleName } from "@/lib/utils";
 import AhaduLogo from "@/components/AhaduLogo";
 import {
   LayoutDashboard, Layers, BarChart3, Trophy, Bell,
-  Lightbulb, FileText, Brain, Users, Settings, LogOut, ChevronRight,
-  TrendingUp, Sparkles,
+  Lightbulb, FileText, Brain, Users, Settings,
+  TrendingUp, Sparkles, ChevronRight,
 } from "lucide-react";
 
+/**
+ * Role-based navigation.
+ * Each entry lists exactly which roles can see it.
+ * super_admin always sees everything.
+ *
+ * Roles: super_admin | executive_management | product_manager |
+ *        data_engineer | ml_engineer | risk_team | compliance_team
+ */
 const NAV_ITEMS = [
-  { href: "/dashboard",                     label: "Dashboard",        icon: LayoutDashboard },
-  { href: "/dashboard/products",            label: "Products",         icon: Layers },
-  { href: "/dashboard/scores",              label: "Scores",           icon: BarChart3 },
-  { href: "/dashboard/rankings",            label: "Rankings",         icon: Trophy },
-  { href: "/dashboard/alerts",              label: "Alerts",           icon: Bell },
-  { href: "/dashboard/recommendations",     label: "Recommendations",  icon: Lightbulb },
-  { href: "/dashboard/predictions",         label: "Predictions",      icon: TrendingUp },
-  { href: "/dashboard/reports",             label: "Reports",          icon: FileText },
-  { href: "/dashboard/models",              label: "Model Management", icon: Brain },
-  { href: "/dashboard/insights",            label: "Executive Insights", icon: Sparkles },
-  { href: "/dashboard/users",               label: "Users",            icon: Users,
-    roles: ["super_admin", "executive_management"] },
-  { href: "/dashboard/settings",            label: "Settings",         icon: Settings },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: ["super_admin", "executive_management", "product_manager", "data_engineer",
+            "ml_engineer", "risk_team", "compliance_team"],
+  },
+  {
+    href: "/dashboard/products",
+    label: "Products",
+    icon: Layers,
+    roles: ["super_admin", "executive_management", "product_manager", "data_engineer",
+            "ml_engineer", "risk_team", "compliance_team"],
+  },
+  {
+    href: "/dashboard/scores",
+    label: "Scores",
+    icon: BarChart3,
+    roles: ["super_admin", "executive_management", "product_manager", "data_engineer",
+            "ml_engineer", "risk_team", "compliance_team"],
+  },
+  {
+    href: "/dashboard/rankings",
+    label: "Rankings",
+    icon: Trophy,
+    roles: ["super_admin", "executive_management", "product_manager",
+            "ml_engineer", "compliance_team"],
+  },
+  {
+    href: "/dashboard/alerts",
+    label: "Alerts",
+    icon: Bell,
+    roles: ["super_admin", "executive_management", "product_manager",
+            "risk_team", "compliance_team"],
+  },
+  {
+    href: "/dashboard/recommendations",
+    label: "Recommendations",
+    icon: Lightbulb,
+    roles: ["super_admin", "executive_management", "product_manager", "risk_team"],
+  },
+  {
+    href: "/dashboard/predictions",
+    label: "Predictions",
+    icon: TrendingUp,
+    roles: ["super_admin", "executive_management", "product_manager", "ml_engineer"],
+  },
+  {
+    href: "/dashboard/reports",
+    label: "Reports",
+    icon: FileText,
+    roles: ["super_admin", "executive_management", "data_engineer",
+            "ml_engineer", "risk_team", "compliance_team"],
+  },
+  {
+    href: "/dashboard/models",
+    label: "Model Management",
+    icon: Brain,
+    roles: ["super_admin", "ml_engineer", "data_engineer"],
+  },
+  {
+    href: "/dashboard/insights",
+    label: "Executive Insights",
+    icon: Sparkles,
+    roles: ["super_admin", "executive_management"],
+  },
+  {
+    href: "/dashboard/users",
+    label: "Users",
+    icon: Users,
+    roles: ["super_admin", "executive_management"],
+  },
+  {
+    href: "/dashboard/settings",
+    label: "Settings",
+    icon: Settings,
+    roles: ["super_admin", "executive_management", "product_manager", "data_engineer",
+            "ml_engineer", "risk_team", "compliance_team"],
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
 
   const visibleItems = NAV_ITEMS.filter(
-    (item) => !item.roles || (user && item.roles.includes(user.role))
+    (item) => user && item.roles.includes(user.role)
   );
 
   return (
@@ -50,12 +124,12 @@ export default function Sidebar() {
           </div>
           <div className="min-w-0">
             <div className="text-white font-black text-sm leading-tight tracking-tight">
-              Ahadu Plus
+              Ahadu Pulse
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-[9px] font-semibold tracking-wide leading-none"
                     style={{ color: "#EDB0BF" }}>
-                AI-Powered Evaluation
+                Performance Evaluation Platform
               </span>
             </div>
           </div>
@@ -104,12 +178,17 @@ export default function Sidebar() {
 
       {/* ── User Profile ── */}
       <div className="p-4 border-t border-white/10">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-full bg-white/20 border border-white/30
-                          flex items-center justify-center text-white text-sm font-bold
-                          flex-shrink-0">
-            {user?.full_name?.charAt(0) || "U"}
-          </div>
+        <div className="flex items-center gap-3">
+          {user?.avatar_url ? (
+            <img src={user.avatar_url} alt={user.full_name}
+                 className="w-9 h-9 rounded-full object-cover border-2 border-white/30 flex-shrink-0" />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-white/20 border border-white/30
+                            flex items-center justify-center text-white text-sm font-bold
+                            flex-shrink-0">
+              {user?.full_name?.charAt(0) || "U"}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="text-white text-xs font-semibold truncate">
               {user?.full_name || "User"}
@@ -119,14 +198,6 @@ export default function Sidebar() {
             </div>
           </div>
         </div>
-        <button
-          onClick={() => logout()}
-          className="flex items-center gap-2 w-full px-3 py-2 text-white/60
-                     hover:text-white hover:bg-white/10 rounded-lg text-xs transition"
-        >
-          <LogOut size={13} />
-          Sign out
-        </button>
       </div>
     </aside>
   );

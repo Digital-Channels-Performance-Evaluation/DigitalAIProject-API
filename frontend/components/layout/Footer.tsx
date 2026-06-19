@@ -271,7 +271,7 @@ export default function Footer() {
                   <div className="w-5 h-0.5 bg-white/70 mb-0.5" />
                 </div>
                 <p className="text-white/50 text-[9px] tracking-widest uppercase leading-tight">
-                  Digital Banking Evaluation Platform
+                  Performance Evaluation Platform
                 </p>
               </div>
             </div>
@@ -299,7 +299,7 @@ export default function Footer() {
                 © {year} Ahadu Bank S.C. All rights reserved.
               </p>
               <p className="text-white/30 text-[9px] mt-0.5">
-                Powered by AI · Built for Ahadu bank Digital Banking
+                Powered by AI · Built for Ahadu Bank Digital Banking
               </p>
             </div>
           </div>

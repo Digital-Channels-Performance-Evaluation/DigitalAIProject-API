@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -23,7 +23,11 @@ async def list_alerts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Alert)
+    # ── Single query with JOIN to avoid N+1 product lookups ──────────────────
+    query = (
+        db.query(Alert, Product.name.label("product_name"))
+        .outerjoin(Product, Alert.product_id == Product.id)
+    )
     if product_id:
         query = query.filter(Alert.product_id == product_id)
     if severity:
@@ -33,15 +37,13 @@ async def list_alerts(
     if is_resolved is not None:
         query = query.filter(Alert.is_resolved == is_resolved)
 
-    alerts = query.order_by(Alert.created_at.desc()).limit(limit).all()
+    rows = query.order_by(Alert.created_at.desc()).limit(limit).all()
 
-    result = []
-    for a in alerts:
-        product = db.query(Product).filter(Product.id == a.product_id).first()
-        result.append({
+    return [
+        {
             "id": a.id,
             "product_id": a.product_id,
-            "product_name": product.name if product else "N/A",
+            "product_name": product_name or "N/A",
             "alert_type": a.alert_type,
             "severity": a.severity,
             "title": a.title,
@@ -52,8 +54,9 @@ async def list_alerts(
             "is_resolved": a.is_resolved,
             "period_date": str(a.period_date),
             "created_at": a.created_at,
-        })
-    return result
+        }
+        for a, product_name in rows
+    ]
 
 
 @router.post("/{alert_id}/resolve")
@@ -81,18 +84,35 @@ async def get_alerts_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    total = db.query(Alert).filter(Alert.is_resolved == False).count()
-    critical = db.query(Alert).filter(Alert.is_resolved == False, Alert.severity == "critical").count()
-    high = db.query(Alert).filter(Alert.is_resolved == False, Alert.severity == "high").count()
-    medium = db.query(Alert).filter(Alert.is_resolved == False, Alert.severity == "medium").count()
-    low = db.query(Alert).filter(Alert.is_resolved == False, Alert.severity == "low").count()
-
-    by_type = {}
-    for t in ["score_drop", "downtime_spike", "failure_rate_increase", "complaint_surge"]:
-        by_type[t] = db.query(Alert).filter(Alert.is_resolved == False, Alert.alert_type == t).count()
-
+    # ── Single query with conditional aggregation ─────────────────────────────
+    from sqlalchemy import func, case
+    rows = (
+        db.query(
+            func.count(Alert.id).label("total"),
+            func.sum(case((Alert.severity == "critical", 1), else_=0)).label("critical"),
+            func.sum(case((Alert.severity == "high",     1), else_=0)).label("high"),
+            func.sum(case((Alert.severity == "medium",   1), else_=0)).label("medium"),
+            func.sum(case((Alert.severity == "low",      1), else_=0)).label("low"),
+            func.sum(case((Alert.alert_type == "score_drop",           1), else_=0)).label("score_drop"),
+            func.sum(case((Alert.alert_type == "downtime_spike",        1), else_=0)).label("downtime_spike"),
+            func.sum(case((Alert.alert_type == "failure_rate_increase", 1), else_=0)).label("failure_rate_increase"),
+            func.sum(case((Alert.alert_type == "complaint_surge",       1), else_=0)).label("complaint_surge"),
+        )
+        .filter(Alert.is_resolved == False)
+        .one()
+    )
     return {
-        "total_unresolved": total,
-        "by_severity": {"critical": critical, "high": high, "medium": medium, "low": low},
-        "by_type": by_type,
+        "total_unresolved": rows.total or 0,
+        "by_severity": {
+            "critical": rows.critical or 0,
+            "high":     rows.high     or 0,
+            "medium":   rows.medium   or 0,
+            "low":      rows.low      or 0,
+        },
+        "by_type": {
+            "score_drop":           rows.score_drop           or 0,
+            "downtime_spike":       rows.downtime_spike       or 0,
+            "failure_rate_increase": rows.failure_rate_increase or 0,
+            "complaint_surge":      rows.complaint_surge      or 0,
+        },
     }

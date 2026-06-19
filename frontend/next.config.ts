@@ -11,20 +11,37 @@ const nextConfig: NextConfig = {
       process.env.NEXT_PUBLIC_API_URL ||
       "http://localhost:8000";
 
+    return {
+      // Run BEFORE the catch-all proxy so /.well-known never hits the backend
+      beforeFiles: [
+        {
+          source: "/.well-known/:path*",
+          destination: "/api/noop",  // handled below — returns instantly
+        },
+      ],
+      afterFiles: [
+        {
+          source: "/api/:path*",
+          destination: `${backend}/api/:path*`,
+        },
+        // Proxy avatar images served by the backend's static file handler
+        {
+          source: "/uploads/:path*",
+          destination: `${backend}/uploads/:path*`,
+        },
+      ],
+      fallback: [],
+    };
+  },
+
+  async headers() {
     return [
-      /**
-       * Forward /api/:path* → backend /api/:path*
-       *
-       * FastAPI expects a trailing slash on collection routes (e.g. /rankings/).
-       * Rather than fighting with 307/308 redirects (which strip Authorization),
-       * we proxy directly to the backend and let Axios handle URL construction.
-       *
-       * The Axios interceptor in lib/api.ts strips trailing slashes from request
-       * URLs before they reach the proxy, preventing redirect loops.
-       */
+      // Cache static assets aggressively — reduces repeat load time
       {
-        source: "/api/:path*",
-        destination: `${backend}/api/:path*`,
+        source: "/_next/static/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
       },
     ];
   },

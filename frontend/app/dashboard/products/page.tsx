@@ -68,6 +68,15 @@ export default function ProductsPage() {
               <div key={i} className="bg-white rounded-xl border border-gray-100 p-5 animate-pulse h-36" />
             ))}
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-100 p-12 text-center shadow-card">
+            <p className="text-gray-400 text-sm font-medium">
+              {search ? `No products match "${search}"` : "No products found."}
+            </p>
+            {!search && (
+              <p className="text-gray-300 text-xs mt-1">Upload data to auto-create channels.</p>
+            )}
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((p) => (

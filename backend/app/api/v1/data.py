@@ -1,8 +1,9 @@
 """
 Data Management API — upload, validate, feature engineering.
-Two-step flow:
-  Step 1 — POST /upload     : validate + bulk ingest raw_data only (fast)
-  Step 2 — POST /engineer   : features → scoring → alerts → recommendations → retrain
+Upload flow (single step):
+  POST /upload : validate + bulk ingest raw_data, then automatically runs
+                 feature engineering → scoring → alerts → recommendations → retrain
+                 scoped to only the products present in the uploaded file.
 """
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from sqlalchemy import func, text
 from typing import List, Optional
 from datetime import date
 import logging
+import threading
 
 from app.core.database import get_db
 from app.core.deps import require_roles, get_current_user
@@ -94,7 +96,8 @@ def _run_scoring_pipeline(db: Session, product_ids: List[int], period_dates: Lis
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# POST /upload  — fast: only validates + bulk-inserts raw_data
+# POST /upload  — validates, ingests, then auto-runs feature engineering
+#                 scoped to only the products present in the uploaded file.
 # ─────────────────────────────────────────────────────────────────────────────
 @router.post("/upload")
 async def upload_file(
@@ -115,7 +118,7 @@ async def upload_file(
     if not validation.is_valid:
         return {"status": "validation_failed", "validation": validation.model_dump()}
 
-    # 3 — Bulk ingest (no feature engineering here)
+    # 3 — Bulk ingest
     success, errors, batch_id = data_service.ingest_dataframe(
         df, db, source="upload", uploaded_by=current_user.id
     )
@@ -127,6 +130,39 @@ async def upload_file(
             "warnings": validation.warnings,
         }
 
+    # 4 — Determine which product IDs were in this upload (scope engineering to them only)
+    uploaded_codes = df["product_code"].dropna().unique().tolist()
+    uploaded_product_ids = [
+        p.id for p in db.query(Product).filter(Product.code.in_(uploaded_codes)).all()
+    ]
+
+    # 5 — Auto-run feature engineering + scoring in background, scoped to uploaded products
+    user_id = current_user.id
+
+    def _run_pipeline(product_ids: List[int]):
+        from app.core.database import SessionLocal
+        db_bg = SessionLocal()
+        try:
+            # Feature engineering only for uploaded products
+            for pid in product_ids:
+                try:
+                    feature_engineering_service.reprocess_all(db_bg, pid)
+                except Exception as e:
+                    logger.warning(f"Feature engineering failed for product_id={pid}: {e}")
+
+            # Score + recommendations + alerts using the already-trained model
+            _run_scoring_pipeline(db_bg, product_ids, [])
+
+            logger.info(f"Auto-pipeline complete for products: {product_ids}")
+        except Exception as e:
+            logger.error(f"Background pipeline failed: {e}", exc_info=True)
+        finally:
+            db_bg.close()
+
+    threading.Thread(
+        target=_run_pipeline, args=(uploaded_product_ids,), daemon=True
+    ).start()
+
     return {
         "status":        "success",
         "filename":      file.filename,
@@ -134,9 +170,10 @@ async def upload_file(
         "rows_failed":   errors,
         "batch_id":      batch_id,
         "warnings":      validation.warnings,
+        "products_in_upload": uploaded_product_ids,
         "message": (
-            f"Imported {success} row(s). "
-            "Click 'Run Feature Engineering' to compute scores, alerts and recommendations."
+            f"Imported {success} row(s) for {len(uploaded_product_ids)} channel(s). "
+            "Feature engineering, scoring, and alerts running in background using the existing trained model."
         ),
     }
 
@@ -216,7 +253,8 @@ async def list_features(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# POST /engineer  — Step 2: features → scores → alerts → recommendations
+# POST /engineer  — manual trigger: features → scores → alerts → recommendations
+#                   (auto-runs after /upload; kept for manual / admin use)
 # ─────────────────────────────────────────────────────────────────────────────
 @router.post("/engineer")
 async def run_feature_engineering(
@@ -231,8 +269,7 @@ async def run_feature_engineering(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Feature engineering failed: {e}")
 
-    # ── Step B: score ALL products that have processed features ─────────────
-    # Fetch the latest period per product across ALL data (not just this batch)
+    # ── Step B: score products that have processed features ──────────────────
     all_products_with_features = (
         db.query(ProcessedFeatures.product_id)
         .distinct()
@@ -252,35 +289,6 @@ async def run_feature_engineering(
 
     # ── Step C: score + recommendations + alerts ─────────────────────────────
     scored_products = _run_scoring_pipeline(db, all_product_ids, [])
-
-    # ── Step D: retrain all models in background + select best ───────────────
-    def _retrain_and_select():
-        from app.core.database import SessionLocal
-        db_bg = SessionLocal()
-        try:
-            for model_type in ["classification", "random_forest", "decision_tree",
-                                "gradient_boosting", "regression"]:
-                try:
-                    if model_type == "classification":
-                        ml_service.train_classification(db_bg)
-                    elif model_type == "random_forest":
-                        ml_service.train_random_forest(db_bg)
-                    elif model_type == "decision_tree":
-                        ml_service.train_decision_tree(db_bg)
-                    elif model_type == "gradient_boosting":
-                        ml_service.train_gradient_boosting(db_bg)
-                    elif model_type == "regression":
-                        ml_service.train_regression(db_bg)
-                except Exception as e:
-                    logger.warning(f"Auto-retrain {model_type} failed: {e}")
-            # Auto-select best model
-            ml_service.select_best_model(db_bg)
-            logger.info("Auto-retrain + best model selection complete.")
-        finally:
-            db_bg.close()
-
-    import threading
-    threading.Thread(target=_retrain_and_select, daemon=True).start()
 
     return {
         "message":           f"Feature engineering completed for {count} record(s).",

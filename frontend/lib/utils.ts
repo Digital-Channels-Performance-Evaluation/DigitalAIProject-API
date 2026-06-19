@@ -59,8 +59,13 @@ export function formatCategoryName(category: string): string {
     qr_payment: "QR Payment",
     digital_wallet: "Digital Wallet",
     future_product: "Future Product",
+    ussd: "USSD",
   };
-  return map[category] || category;
+  // Known mapping first; for any free-form channel, convert snake_case to Title Case
+  return map[category] || category
+    .split("_")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 export function formatRoleName(role: string): string {

@@ -16,9 +16,15 @@ interface PerformanceTrendChartProps {
 }
 
 function aggregateByDate(data: TrendPoint[]) {
+  // If all data is within the same month, use day-level bucketing so the chart shows actual trend
+  const sortedDates = data.map(d => d.date).filter(Boolean).sort();
+  const firstMonth = sortedDates[0]?.slice(0, 7);
+  const lastMonth  = sortedDates[sortedDates.length - 1]?.slice(0, 7);
+  const bucketByDay = firstMonth === lastMonth;
+
   const map: Record<string, { total: number; count: number }> = {};
   data.forEach((d) => {
-    const key = (d.date || "").slice(0, 7);
+    const key = bucketByDay ? (d.date || "").slice(0, 10) : (d.date || "").slice(0, 7);
     if (!key) return;
     if (!map[key]) map[key] = { total: 0, count: 0 };
     map[key].total += Number(d.value) || 0;
@@ -35,8 +41,8 @@ function aggregateByDate(data: TrendPoint[]) {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   const score = payload[0]?.value;
-  const tier = score >= 80 ? "HIGH" : score >= 50 ? "MEDIUM" : "LOW";
-  const tierColor = score >= 80 ? "#166534" : score >= 50 ? "#92400E" : "#991B1B";
+  const tier = score >= 75 ? "HIGH" : score >= 45 ? "MEDIUM" : "LOW";
+  const tierColor = score >= 75 ? "#166534" : score >= 45 ? "#92400E" : "#991B1B";
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-xl text-xs min-w-[130px]">
       <p className="font-semibold text-gray-600 mb-2">{label}</p>
@@ -112,9 +118,9 @@ export default function PerformanceTrendChart({ data, title }: PerformanceTrendC
               tickLine={false}
             />
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={80} stroke="#166534" strokeDasharray="4 4"
+            <ReferenceLine y={75} stroke="#166534" strokeDasharray="4 4"
                            strokeOpacity={0.4} label={{ value: "HIGH", position: "right", fontSize: 9, fill: "#166534" }} />
-            <ReferenceLine y={50} stroke="#92400E" strokeDasharray="4 4"
+            <ReferenceLine y={45} stroke="#92400E" strokeDasharray="4 4"
                            strokeOpacity={0.4} label={{ value: "MED", position: "right", fontSize: 9, fill: "#92400E" }} />
             <Area
               type="monotone"

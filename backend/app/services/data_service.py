@@ -118,9 +118,13 @@ class DataService:
             existing_codes = [
                 p.code for p in db.query(Product).filter(Product.code.in_(codes)).all()
             ]
-            invalid_codes = [c for c in codes if c not in existing_codes]
-            if invalid_codes:
-                errors.append(f"Unknown product codes: {invalid_codes}")
+            new_codes = [c for c in codes if c not in existing_codes]
+            if new_codes:
+                # New codes are allowed — they will be auto-created on ingest.
+                # Just inform the user as a warning, not a hard error.
+                warnings.append(
+                    f"New channel(s) will be created automatically: {new_codes}"
+                )
 
         invalid_rows = len(df) if errors else 0
         return ValidationResult(
@@ -143,6 +147,31 @@ class DataService:
         error_count = 0
 
         codes    = df["product_code"].dropna().unique().tolist()
+        existing = {
+            p.code: p.id
+            for p in db.query(Product).filter(Product.code.in_(codes)).all()
+        }
+
+        # Auto-create any product/channel that doesn't exist yet
+        new_codes = [c for c in codes if c not in existing]
+        for code in new_codes:
+            # Derive a human-readable name and category from the code
+            # e.g. "USSD_1" → name="Ahadu USSD 1", category="ussd_1"
+            readable = code.replace("_", " ").title()
+            category = code.lower()
+            new_product = Product(
+                name=f"Ahadu {readable}",
+                code=code,
+                category=category,
+                description=f"Auto-created channel from uploaded data ({code})",
+                is_active=True,
+            )
+            db.add(new_product)
+            logger.info(f"Auto-created product/channel: code={code}")
+        if new_codes:
+            db.commit()
+
+        # Reload product map after potential new inserts
         products = {
             p.code: p.id
             for p in db.query(Product).filter(Product.code.in_(codes)).all()

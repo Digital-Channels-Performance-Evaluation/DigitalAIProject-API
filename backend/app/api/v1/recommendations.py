@@ -35,13 +35,19 @@ async def list_recommendations(
 
     recs = query.order_by(Recommendation.created_at.desc()).limit(limit).all()
 
+    # Single join query to get product names — avoids N+1
+    product_ids_in_recs = list({r.product_id for r in recs})
+    products_map = {
+        p.id: p.name
+        for p in db.query(Product).filter(Product.id.in_(product_ids_in_recs)).all()
+    }
+
     result = []
     for r in recs:
-        product = db.query(Product).filter(Product.id == r.product_id).first()
         result.append({
             "id": r.id,
             "product_id": r.product_id,
-            "product_name": product.name if product else "N/A",
+            "product_name": products_map.get(r.product_id, "N/A"),
             "category": r.category,
             "priority": r.priority,
             "title": r.title,

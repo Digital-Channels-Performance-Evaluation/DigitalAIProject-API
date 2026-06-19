@@ -73,6 +73,12 @@ export default function RankingsPage() {
                     ))}
                   </tr>
                 ))
+              ) : rankings.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">
+                    No rankings available yet. Upload data and run feature engineering to generate scores.
+                  </td>
+                </tr>
               ) : rankings.map((r) => (
                 <tr key={r.product_id} className="hover:bg-[#FBF0F3] transition">
                   <td className="px-5 py-4">

@@ -17,6 +17,7 @@ class TokenResponse(BaseModel):
     email: str
     role: str
     full_name: str
+    avatar_url: Optional[str] = None
 
 
 class RefreshRequest(BaseModel):
@@ -41,6 +42,15 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+
+
 class UserResponse(BaseModel):
     id: int
     full_name: str
@@ -48,6 +58,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     is_mfa_enabled: bool
+    avatar_url: Optional[str] = None
     last_login: Optional[datetime] = None
     created_at: datetime
 

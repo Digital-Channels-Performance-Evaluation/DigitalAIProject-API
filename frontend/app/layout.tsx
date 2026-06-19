@@ -3,9 +3,9 @@ import "./globals.css";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Ahadu Plus | AI-Powered Digital Banking Evaluation Platform",
-  description: "Ahadu Plus — AI-Powered Digital Banking Product Evaluation Platform for Ahadu Bank",
-  icons: { icon: "/favicon.ico" },
+  title: "Ahadu Pulse",
+  description: "Ahadu Pulse",
+  icons: { icon: "/ahadu-logo.jpg" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

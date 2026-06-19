@@ -10,14 +10,14 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 const api = axios.create({
   baseURL: "/api",
   headers: { "Content-Type": "application/json" },
-  timeout: 120_000,
+  // 30s for normal requests; long-running ML endpoints get their own timeout via config override
+  timeout: 30_000,
   maxRedirects: 5,
   withCredentials: false,
 });
 
 // ── Strip trailing slash (handles /path/ and /path/?query) ──────────────
 function stripSlash(url: string): string {
-  // Replace /? with ? and trailing / with nothing
   return url.replace(/\/\?/, "?").replace(/\/$/, "");
 }
 
@@ -54,5 +54,21 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/** For ML training / report generation endpoints that can legitimately take longer */
+export const apiLong = axios.create({
+  baseURL: "/api",
+  headers: { "Content-Type": "application/json" },
+  timeout: 120_000,
+  withCredentials: false,
+});
+apiLong.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("access_token");
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
+  if (config.url) config.url = stripSlash(config.url);
+  return config;
+});
 
 export default api;

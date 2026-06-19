@@ -2,7 +2,7 @@
 SQLAlchemy ORM models for raw_data and processed_features.
 All columns aligned with BRD Section 3.1.2 feature list and init.sql schema.
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, Date
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, Date, Index
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -36,6 +36,7 @@ class RawData(Base):
     downtime_minutes     = Column(Float, nullable=True, comment="Total downtime in MINUTES (BRD primary)")
     downtime_hours       = Column(Float, nullable=True, comment="downtime_minutes / 60 convenience alias")
     avg_response_time_ms = Column(Float, nullable=True, comment="Average API response time ms")
+    avg_session_duration_sec = Column(Float, nullable=True, comment="Average user session duration in seconds (from app analytics)")
     api_error_rate       = Column(Float, nullable=True, comment="API error rate % from Digital Channel MW")
 
     # ── Complaint / CRM metrics ───────────────────────────────────────────────
@@ -50,10 +51,18 @@ class RawData(Base):
     # ── Source / upload metadata ─────────────────────────────────────────────
     source            = Column(String(100), nullable=True, comment="csv | excel | api | manual | seed")
     upload_batch_id   = Column(String(100), nullable=True)
-    is_validated      = Column(Boolean, default=False)
+    is_validated      = Column(Boolean, default=False, index=True)
     validation_errors = Column(Text, nullable=True)
     uploaded_by       = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Composite indexes for the two hottest query patterns:
+    # 1. Charts endpoint: all raw_data for product_ids in date range
+    # 2. Feature engineering: validated records per product ordered by date
+    __table_args__ = (
+        Index("ix_rawdata_product_period", "product_id", "period_date"),
+        Index("ix_rawdata_validated_product_period", "is_validated", "product_id", "period_date"),
+    )
 
 
 class ProcessedFeatures(Base):
@@ -99,3 +108,9 @@ class ProcessedFeatures(Base):
     data_quality_notes = Column(Text, nullable=True)
     engineering_version = Column(String(50), default="1.0.0")
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Composite indexes: feature engineering and ML training queries
+    __table_args__ = (
+        Index("ix_pf_product_period", "product_id", "period_date"),
+        Index("ix_pf_raw_data_id", "raw_data_id"),
+    )
