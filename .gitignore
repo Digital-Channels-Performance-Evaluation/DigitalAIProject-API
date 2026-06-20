@@ -23,7 +23,7 @@ backend/venv/
 
 # Node
 frontend/node_modules/
-frontend/.build/*
+frontend/.build/cache/
 frontend/.build/
 .next/
 .nuxt/
