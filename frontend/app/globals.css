@@ -1,0 +1,273 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Ahadu Brand: Wine Burgundy Crimson ───────────────────────────────────
+   Extracted from official Ahadu Bank branding image.
+   Primary:  #9B1535  (deep wine-crimson)
+   Dark:     #7A0E28  (dark burgundy)
+   Darker:   #5E0B1E
+   Light:    #BE1B3C
+   Pattern:  #8A1230  (Ethiopic script overlay shade in brand image)
+   Pale:     #FBF0F3
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 345 55% 8%;
+  --primary: 345 73% 34%;        /* #9B1535 */
+  --primary-foreground: 0 0% 100%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 40%;
+  --border: 0 0% 90%;
+  --card: 0 0% 100%;
+  --card-foreground: 345 55% 8%;
+  --brand-dark: 345 79% 26%;     /* #7A0E28 */
+  --brand-darker: 345 79% 20%;   /* #5E0B1E */
+}
+
+* {
+  border-color: hsl(var(--border));
+  box-sizing: border-box;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #F5F5F5; }
+::-webkit-scrollbar-thumb { background: #BE1B3C; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9B1535; }
+
+/* ── Sidebar ───────────────────────────────────────────────────────────── */
+.sidebar-item-active {
+  background-color: #9B1535;
+  color: white;
+}
+
+.sidebar-item {
+  color: #F6D9E1;
+  transition: all 0.15s ease;
+}
+
+.sidebar-item:hover {
+  background-color: #9B1535;
+  color: white;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+.metric-card {
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.metric-card:hover {
+  box-shadow: 0 4px 12px rgba(155,21,53,0.12);
+  transform: translateY(-1px);
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+.data-table th {
+  background: #FBF0F3;
+  color: #7A0E28;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.data-table tr:hover td {
+  background: #FBF0F3;
+}
+
+/* ── Chart tooltip ─────────────────────────────────────────────────────── */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  border: 1px solid #E5E7EB !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(155,21,53,0.1) !important;
+}
+
+/* ── Brand gradient used in header / hero areas ────────────────────────── */
+.brand-gradient {
+  background: linear-gradient(135deg, #7A0E28 0%, #9B1535 50%, #BE1B3C 100%);
+}
+
+/* ── Focus ring ─────────────────────────────────────────────────────────── */
+.focus-brand:focus {
+  outline: none;
+  ring: 2px;
+  ring-color: #9B1535;
+  ring-offset: 2px;
+}
+
+/* ── Score badge ────────────────────────────────────────────────────────── */
+.score-high   { color: #166534; background: #DCFCE7; }
+.score-medium { color: #92400E; background: #FEF3C7; }
+.score-low    { color: #991B1B; background: #FEE2E2; }
+/* ─────────────────────────────────────────────────────────────
+   Dashboard Enhancements
+───────────────────────────────────────────────────────────── */
+
+/* Better card shadows */
+
+.shadow-card {
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.04),
+    0 12px 24px rgba(155, 21, 53, 0.06);
+}
+
+/* Chart containers */
+
+.recharts-responsive-container {
+  min-height: 320px;
+}
+
+/* Grid lines */
+
+.recharts-cartesian-grid line {
+  stroke: #E5E7EB !important;
+  stroke-width: 1;
+}
+
+/* Axis styling */
+
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: #CBD5E1 !important;
+}
+
+.recharts-cartesian-axis-tick-value {
+  fill: #64748B !important;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Main chart line */
+
+.recharts-line-curve {
+  stroke-width: 4px !important;
+  filter: drop-shadow(
+    0 4px 8px rgba(155, 21, 53, 0.25)
+  );
+}
+
+/* Dots */
+
+.recharts-dot circle {
+  fill: #9B1535 !important;
+  stroke: #FFFFFF !important;
+  stroke-width: 2px !important;
+}
+
+.recharts-active-dot circle {
+  fill: #7A0E28 !important;
+  stroke: #FFFFFF !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(
+    0 0 10px rgba(155, 21, 53, 0.35)
+  );
+}
+
+/* Hover cursor */
+
+.recharts-tooltip-cursor {
+  stroke: #9B1535 !important;
+  stroke-width: 1.5 !important;
+  stroke-dasharray: 4 4;
+}
+
+/* Tooltip */
+
+.recharts-tooltip-wrapper {
+  z-index: 9999;
+}
+
+.recharts-default-tooltip {
+  background: #FFFFFF !important;
+  border: 1px solid #E5E7EB !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.08),
+    0 12px 24px rgba(155, 21, 53, 0.08) !important;
+}
+
+/* Legend */
+
+.recharts-legend-item-text {
+  color: #475569 !important;
+  font-weight: 500 !important;
+}
+
+/* Pie chart labels */
+
+.recharts-pie-label-text {
+  font-weight: 600;
+  fill: #374151 !important;
+}
+
+/* Smooth card hover effect */
+
+.bg-white.rounded-xl {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.bg-white.rounded-xl:hover {
+  transform: translateY(-2px);
+}
+
+/* Rankings table */
+
+.data-table tbody tr {
+  transition: all 0.15s ease;
+}
+
+.data-table tbody tr:hover {
+  background: #FBF0F3;
+}
+
+.data-table tbody tr:hover td {
+  background: transparent;
+}
+
+/* Alerts */
+
+.divide-y > div:hover {
+  background: #FAFBFC;
+}
+
+/* Make chart text easier to read */
+
+.recharts-text {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Area chart fills */
+
+.recharts-area-area {
+  opacity: 0.25;
+}
+
+/* Bar charts */
+
+.recharts-bar-rectangle:hover {
+  opacity: 0.9;
+}
+
+/* Animation */
+
+.recharts-layer {
+  transition: all 0.2s ease;
+}
