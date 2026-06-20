@@ -2,7 +2,12 @@ backend/data/processed/
 backend/data/raw/
 backend/data/validation/
 # Python
-__pycache__/
+backend/app/__pycache__/
+backend/app/api/__pycache__/
+backend/app/core/__pycache__/
+backend/alembic/__pycache__/
+
+
 *.pyc
 *.pyo
 *.pyd
@@ -17,10 +22,11 @@ backend/venv/
 *.db
 
 # Node
-node_modules/
+frontend/node_modules/
+frontend/.build/
 .next/
 .nuxt/
-dist/
+frontend/dist/
 npm-debug.log*
 # Next.js build output
 frontend/.build/
