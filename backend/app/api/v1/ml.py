@@ -287,7 +287,45 @@ async def get_task_status(
                 "progress": {"message": "Training running in background thread…"}}
 
 
+@router.get("/config/auto-train")
+async def get_auto_train_config(
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer")),
+):
+    """Get current AUTO_TRAIN_ON_UPLOAD setting."""
+    from app.core.config import settings as cfg
+    return {
+        "auto_train_on_upload": cfg.AUTO_TRAIN_ON_UPLOAD,
+        "description": "When enabled, models automatically train on every data upload. When disabled, training must be triggered manually.",
+        "recommendation": "Disable for production (efficient). Enable for development (convenient)."
+    }
 
+
+@router.post("/config/auto-train")
+async def update_auto_train_config(
+    enabled: bool,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin")),
+):
+    """
+    Update AUTO_TRAIN_ON_UPLOAD setting dynamically (runtime only).
+    Note: This changes the in-memory setting but does not persist to .env file.
+    The setting will reset to .env value on server restart.
+    """
+    from app.core.config import settings as cfg
+    old_value = cfg.AUTO_TRAIN_ON_UPLOAD
+    cfg.AUTO_TRAIN_ON_UPLOAD = enabled
+    
+    logger.info(f"AUTO_TRAIN_ON_UPLOAD changed from {old_value} to {enabled} by user {current_user.email}")
+    
+    return {
+        "auto_train_on_upload": enabled,
+        "previous_value": old_value,
+        "message": f"Auto-training {'enabled' if enabled else 'disabled'}. Note: This is a runtime change and will reset on server restart. Update .env file for permanent change.",
+        "restart_notice": "To make this permanent, update AUTO_TRAIN_ON_UPLOAD in your .env file."
+    }
+
+
+@router.get("/predictions/bulk")
 async def get_bulk_predictions(
     product_ids: str,
     db: Session = Depends(get_db),

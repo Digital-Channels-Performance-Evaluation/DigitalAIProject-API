@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # ML
     MODEL_REGISTRY_PATH: str = "./ml_models"
     TRAINING_CHUNK_SIZE: int = 50_000   # rows loaded per chunk when dataset is large
+    AUTO_TRAIN_ON_UPLOAD: bool = False  # Set to True in dev to auto-train on every upload
 
     # Celery
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"

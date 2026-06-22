@@ -58,6 +58,11 @@ export const getPredictions = (modelId) => api.get(`/ml/predictions/${modelId}`)
 
 export const deleteModel = (id) => api.delete(`/ml/models/${id}`);
 
+export const getAutoTrainConfig = () => api.get('/ml/config/auto-train');
+
+export const updateAutoTrainConfig = (enabled) => 
+  api.post('/ml/config/auto-train', null, { params: { enabled } });
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 export const getKPIs = () => api.get('/dashboard/kpis');

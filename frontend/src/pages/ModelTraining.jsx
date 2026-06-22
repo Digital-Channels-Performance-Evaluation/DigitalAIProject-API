@@ -1,15 +1,18 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import {
   Grid, Paper, Typography, Box, Button, Select, MenuItem,
   FormControl, InputLabel, CircularProgress, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  LinearProgress, Tooltip, Chip,
+  LinearProgress, Tooltip, Chip, Switch, FormControlLabel, Alert,
 } from '@mui/material';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import DeleteIcon from '@mui/icons-material/Delete';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { trainModel, listModels, listDatasets, deleteModel } from '../api/endpoints';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { trainModel, listModels, listDatasets, deleteModel, getAutoTrainConfig, updateAutoTrainConfig } from '../api/endpoints';
 import StatusBadge from '../components/common/StatusBadge';
 import SectionHeader from '../components/common/SectionHeader';
 import ModelDetailDrawer from '../components/ML/ModelDetailDrawer';
@@ -54,13 +57,20 @@ export default function ModelTraining() {
   const [training, setTraining] = useState(false);
   const [loading, setLoading] = useState(true);
   const [drawerModel, setDrawerModel] = useState(null);
+  const [autoTrainEnabled, setAutoTrainEnabled] = useState(false);
+  const [autoTrainLoading, setAutoTrainLoading] = useState(false);
 
   const fetchAll = async () => {
     try {
-      const [dsRes, modRes] = await Promise.all([listDatasets(), listModels()]);
+      const [dsRes, modRes, configRes] = await Promise.all([
+        listDatasets(), 
+        listModels(), 
+        getAutoTrainConfig().catch(() => ({ data: { auto_train_on_upload: false } }))
+      ]);
       const ready = (dsRes.data.datasets || []).filter((d) => d.status === 'completed');
       setDatasets(ready);
       setModels(modRes.data || []);
+      setAutoTrainEnabled(configRes.data.auto_train_on_upload);
     } catch {
       // ignore
     } finally {
@@ -102,6 +112,20 @@ export default function ModelTraining() {
     }
   };
 
+  const handleToggleAutoTrain = async (event) => {
+    const newValue = event.target.checked;
+    setAutoTrainLoading(true);
+    try {
+      const res = await updateAutoTrainConfig(newValue);
+      setAutoTrainEnabled(newValue);
+      toast.success(res.data.message);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setAutoTrainLoading(false);
+    }
+  };
+
   return (
     <Box>
       <SectionHeader
@@ -110,6 +134,55 @@ export default function ModelTraining() {
       />
 
       <Grid container spacing={3}>
+        {/* Auto-Train Settings */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+              <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <SettingsIcon sx={{ color: 'warning.main', fontSize: 20 }} />
+              </Box>
+              <Box sx={{ flexGrow: 1 }}>
+                <Typography variant="h6">Training Configuration</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Control when models are trained
+                </Typography>
+              </Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoTrainEnabled}
+                    onChange={handleToggleAutoTrain}
+                    disabled={autoTrainLoading}
+                  />
+                }
+                label={autoTrainEnabled ? 'Auto-Train ON' : 'Auto-Train OFF'}
+              />
+            </Box>
+
+            {autoTrainEnabled ? (
+              <Alert severity="warning" sx={{ mb: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Development Mode: Auto-Training Enabled
+                </Typography>
+                <Typography variant="caption">
+                  Models will automatically train on every data upload. This is convenient for development but may slow down uploads (~20-30 seconds). 
+                  Recommended: Disable for production and use manual training.
+                </Typography>
+              </Alert>
+            ) : (
+              <Alert severity="success" sx={{ mb: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Production Mode: Manual Training Only
+                </Typography>
+                <Typography variant="caption">
+                  Data uploads are fast (predictions only). Train models manually using the form below or schedule training during off-peak hours.
+                  This is the recommended setting for production environments.
+                </Typography>
+              </Alert>
+            )}
+          </Paper>
+        </Grid>
+
         {/* Training Form */}
         <Grid item xs={12} lg={4}>
           <Paper sx={{ p: 3 }}>

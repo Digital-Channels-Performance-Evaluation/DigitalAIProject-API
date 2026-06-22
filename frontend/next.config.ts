@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   distDir: ".build",
   output: "standalone",
   images: { unoptimized: true },
+  pageExtensions: ['tsx', 'ts'], // Only process .tsx and .ts files in app directory
 
   async rewrites() {
     const backend =

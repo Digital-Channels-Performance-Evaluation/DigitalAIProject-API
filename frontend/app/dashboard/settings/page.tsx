@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { Upload, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Upload, CheckCircle2, AlertTriangle, Settings } from "lucide-react";
 import Header from "@/components/layout/Header";
 import api from "@/lib/api";
 import { toast } from "sonner";
@@ -15,6 +15,36 @@ export default function SettingsPage() {
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [uploadSteps, setUploadSteps]   = useState<Step[]>([]);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [autoTrainEnabled, setAutoTrainEnabled] = useState(false);
+  const [autoTrainLoading, setAutoTrainLoading] = useState(false);
+
+  // Fetch auto-train config on mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await api.get("/ml/config/auto-train");
+        setAutoTrainEnabled(res.data.auto_train_on_upload);
+      } catch (err) {
+        // Silently fail - user might not have permission
+      }
+    };
+    fetchConfig();
+  }, []);
+
+  const handleToggleAutoTrain = async () => {
+    setAutoTrainLoading(true);
+    try {
+      const res = await api.post("/ml/config/auto-train", null, {
+        params: { enabled: !autoTrainEnabled }
+      });
+      setAutoTrainEnabled(!autoTrainEnabled);
+      toast.success(res.data.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || "Failed to update auto-train setting");
+    } finally {
+      setAutoTrainLoading(false);
+    }
+  };
 
   const updateStep = (i: number, s: StepStatus, d?: string) =>
     setUploadSteps(prev => prev.map((x, j) => j === i ? { ...x, status: s, detail: d ?? x.detail } : x));
@@ -25,14 +55,21 @@ export default function SettingsPage() {
     setUploading(true);
     setUploadResult(null);
     setValidationErrors([]);
-    setUploadSteps([
+    
+    const steps: Step[] = [
       { label: "Reading & validating file",                       status: "pending" },
       { label: "Importing to database",                           status: "pending" },
       { label: "Feature engineering & scoring (background)",      status: "pending" },
       { label: "Alerts & AI recommendations (background)",        status: "pending" },
-      { label: "Retraining ML models (background)",               status: "pending" },
-      { label: "Refreshing all dashboard pages",                  status: "pending" },
-    ]);
+    ];
+    
+    if (autoTrainEnabled) {
+      steps.push({ label: "Training ML models (background)",      status: "pending" });
+    }
+    
+    steps.push({ label: "Refreshing all dashboard pages",         status: "pending" });
+    
+    setUploadSteps(steps);
 
     try {
       updateStep(0, "running");
@@ -72,19 +109,25 @@ export default function SettingsPage() {
       await new Promise(r => setTimeout(r, 200));
       updateStep(3, "done", "running in background");
 
-      updateStep(4, "running");
-      await new Promise(r => setTimeout(r, 200));
-      updateStep(4, "done", "running in background");
+      let finalStepIndex = 4;
+      if (autoTrainEnabled) {
+        updateStep(4, "running");
+        await new Promise(r => setTimeout(r, 200));
+        updateStep(4, "done", "running in background");
+        finalStepIndex = 5;
+      }
 
-      updateStep(5, "running");
+      updateStep(finalStepIndex, "running");
       refreshBus.emit();
       await new Promise(r => setTimeout(r, 200));
-      updateStep(5, "done");
+      updateStep(finalStepIndex, "done");
 
       setUploadResult(res.data);
+      const trainingMsg = autoTrainEnabled 
+        ? "Feature engineering & model training running in background."
+        : "Feature engineering running in background.";
       toast.success(
-        `✓ ${res.data.rows_imported} row(s) imported for ${channelCount} channel(s). ` +
-        `Feature engineering & model retraining running in background.`
+        `✓ ${res.data.rows_imported} row(s) imported for ${channelCount} channel(s). ${trainingMsg}`
       );
       res.data.warnings?.forEach((w: string) => toast.warning(w));
 
@@ -137,6 +180,67 @@ export default function SettingsPage() {
         subtitle="Upload KPI data — feature engineering, scoring and model retraining run automatically"
       />
       <div className="p-6 space-y-5 max-w-3xl">
+        {/* ── Auto-Train Configuration ────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                <Settings size={14} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Model Training Mode</h3>
+                <p className="text-xs text-gray-500">
+                  Control when ML models are automatically trained
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleToggleAutoTrain}
+              disabled={autoTrainLoading}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                autoTrainEnabled 
+                  ? "bg-amber-500 focus:ring-amber-500" 
+                  : "bg-gray-200 focus:ring-gray-400"
+              } ${autoTrainLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  autoTrainEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          {autoTrainEnabled ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <p className="text-xs font-semibold text-amber-800 mb-1.5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                Development Mode: Auto-Training Enabled
+              </p>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                Models will automatically train on every data upload. This adds 20-30 seconds to each upload 
+                but ensures models are always up-to-date. Best for development and testing.
+              </p>
+              <p className="text-xs text-amber-600 mt-2 font-medium">
+                💡 Recommended: Disable for production to keep uploads fast.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <p className="text-xs font-semibold text-green-800 mb-1.5 flex items-center gap-2">
+                <CheckCircle2 size={12} className="text-green-600" />
+                Production Mode: Manual Training (Recommended)
+              </p>
+              <p className="text-xs text-green-700 leading-relaxed">
+                Uploads are fast (~2 seconds). Models use existing training for predictions. 
+                Train models manually when needed or schedule periodic retraining.
+              </p>
+              <p className="text-xs text-green-600 mt-2 font-medium">
+                ⚡ This is the recommended setting for production environments.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Validation errors */}
         {validationErrors.length > 0 && (
@@ -157,7 +261,9 @@ export default function SettingsPage() {
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Upload KPI Data</h3>
               <p className="text-xs text-gray-500">
-                Import CSV or XLSX — scores, alerts and model retraining run automatically per channel
+                Import CSV or XLSX — {autoTrainEnabled 
+                  ? "models will train automatically (~30s per upload)" 
+                  : "fast predictions with existing models (~2s)"}
               </p>
             </div>
           </div>
@@ -214,8 +320,8 @@ export default function SettingsPage() {
                   : ""}
               </p>
               <p className="text-green-600 mt-0.5">
-                Feature engineering, scoring, alerts and model retraining are running in the background.
-                Dashboard pages will refresh automatically when complete.
+                Feature engineering and scoring {autoTrainEnabled ? "and model training " : ""}
+                running in the background. Dashboard pages will refresh automatically when complete.
               </p>
             </div>
           )}
@@ -244,8 +350,12 @@ export default function SettingsPage() {
               "Score each uploaded channel using active ML models — normalised to 0–95 range",
               "Generate threshold-based alerts (score drops, downtime spikes, failure rates, CSAT)",
               "Generate AI recommendations from actual metric values — channel-specific",
-              "Auto-retrain all 5 ML models (LR, RF, DT, GB, Ridge) on updated dataset",
-              "Auto-select best classifier (lowest log-loss) and best regressor (lowest MAE)",
+              ...(autoTrainEnabled ? [
+                "Auto-retrain all 5 ML models (LR, RF, DT, GB, Ridge) on updated dataset",
+                "Auto-select best classifier (lowest log-loss) and best regressor (lowest MAE)",
+              ] : [
+                "Use existing trained models for predictions (manual training available)"
+              ]),
               "Refresh dashboard: Products · Scores · Rankings · Alerts · Recommendations · Predictions",
             ].map((item, i) => (
               <div key={i} className="flex items-start gap-2">

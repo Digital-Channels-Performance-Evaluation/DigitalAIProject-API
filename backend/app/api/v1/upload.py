@@ -59,6 +59,59 @@ def _save_channel_metrics(db, dataset_id: int, processed_file: str):
         logging.getLogger(__name__).warning(f"ChannelMetric save failed: {e}")
 
 
+def _trigger_model_training(db, dataset_id: int):
+    """Trigger automatic model training after successful data upload (if enabled)."""
+    import logging
+    from app.core.config import settings as cfg
+    logger = logging.getLogger(__name__)
+    
+    # Check if auto-training is enabled
+    if not cfg.AUTO_TRAIN_ON_UPLOAD:
+        logger.info(f"AUTO_TRAIN_ON_UPLOAD=False: Skipping auto-training for dataset {dataset_id}")
+        return
+    
+    try:
+        from app.services.ml_service import ml_service
+        
+        logger.info(f"AUTO_TRAIN_ON_UPLOAD=True: Training models for dataset {dataset_id}")
+        
+        # Train all model types
+        model_types = ["classification", "random_forest", "decision_tree", 
+                      "gradient_boosting", "regression", "similarity"]
+        
+        trained_models = []
+        for model_type in model_types:
+            try:
+                if model_type == "classification":
+                    ml_service.train_classification(db, dataset_version="auto")
+                elif model_type == "random_forest":
+                    ml_service.train_random_forest(db, dataset_version="auto")
+                elif model_type == "decision_tree":
+                    ml_service.train_decision_tree(db, dataset_version="auto")
+                elif model_type == "gradient_boosting":
+                    ml_service.train_gradient_boosting(db, dataset_version="auto")
+                elif model_type == "regression":
+                    ml_service.train_regression(db, dataset_version="auto")
+                elif model_type == "similarity":
+                    ml_service.train_similarity(db, dataset_version="auto")
+                
+                trained_models.append(model_type)
+                logger.info(f"Successfully trained {model_type} model")
+            except Exception as e:
+                logger.warning(f"Failed to train {model_type}: {e}")
+        
+        # Select best models
+        if trained_models:
+            ml_service.select_best_model(db)
+            logger.info(f"Auto-training complete. Trained: {', '.join(trained_models)}")
+        
+    except Exception as e:
+        logger.error(f"Auto-training failed for dataset {dataset_id}: {e}")
+
+
+
+
+
 def _process_and_save(dataset_id: int, file_path: Path):
     """Background task: run feature engineering and update DB record."""
     from app.database import SessionLocal
@@ -84,6 +137,9 @@ def _process_and_save(dataset_id: int, file_path: Path):
             db.commit()
             # Populate ChannelMetric table
             _save_channel_metrics(db, dataset_id, result["processed_file"])
+            
+            # Auto-trigger model training (if enabled via AUTO_TRAIN_ON_UPLOAD)
+            _trigger_model_training(db, dataset_id)
         else:
             dataset.status = models.UploadStatus.failed
             dataset.error_message = str(result.get("validation", {}).get("errors", "Unknown error"))

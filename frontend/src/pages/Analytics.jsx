@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import {
   Box, Grid, Paper, Typography, Select, MenuItem, FormControl,

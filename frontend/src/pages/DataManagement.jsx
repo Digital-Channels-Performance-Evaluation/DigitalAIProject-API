@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Grid, Paper, Typography, Box } from '@mui/material';
 import StorageIcon from '@mui/icons-material/Storage';

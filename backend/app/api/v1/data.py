@@ -137,10 +137,12 @@ async def upload_file(
     ]
 
     # 5 — Auto-run feature engineering + scoring in background, scoped to uploaded products
+    # NOTE: Training is separate - use POST /api/ml/train-all for model training
     user_id = current_user.id
 
     def _run_pipeline(product_ids: List[int]):
         from app.core.database import SessionLocal
+        from app.core.config import settings as cfg
         db_bg = SessionLocal()
         try:
             # Feature engineering only for uploaded products
@@ -150,7 +152,44 @@ async def upload_file(
                 except Exception as e:
                     logger.warning(f"Feature engineering failed for product_id={pid}: {e}")
 
-            # Score + recommendations + alerts using the already-trained model
+            # Conditional auto-training based on environment variable
+            if cfg.AUTO_TRAIN_ON_UPLOAD:
+                logger.info("AUTO_TRAIN_ON_UPLOAD=True: Training models with uploaded data...")
+                model_types = ["classification", "random_forest", "decision_tree", 
+                              "gradient_boosting", "regression", "similarity"]
+                trained_models = []
+                
+                for model_type in model_types:
+                    try:
+                        if model_type == "classification":
+                            ml_service.train_classification(db_bg, dataset_version="auto_upload")
+                        elif model_type == "random_forest":
+                            ml_service.train_random_forest(db_bg, dataset_version="auto_upload")
+                        elif model_type == "decision_tree":
+                            ml_service.train_decision_tree(db_bg, dataset_version="auto_upload")
+                        elif model_type == "gradient_boosting":
+                            ml_service.train_gradient_boosting(db_bg, dataset_version="auto_upload")
+                        elif model_type == "regression":
+                            ml_service.train_regression(db_bg, dataset_version="auto_upload")
+                        elif model_type == "similarity":
+                            ml_service.train_similarity(db_bg, dataset_version="auto_upload")
+                        
+                        trained_models.append(model_type)
+                        logger.info(f"Successfully trained {model_type} model")
+                    except Exception as e:
+                        logger.warning(f"Failed to train {model_type}: {e}")
+                
+                # Select best models
+                if trained_models:
+                    try:
+                        ml_service.select_best_model(db_bg)
+                        logger.info(f"Model training complete. Trained: {', '.join(trained_models)}")
+                    except Exception as e:
+                        logger.warning(f"Best model selection failed: {e}")
+            else:
+                logger.info("AUTO_TRAIN_ON_UPLOAD=False: Skipping training, using existing models for predictions.")
+
+            # Score + recommendations + alerts using pre-trained models
             _run_scoring_pipeline(db_bg, product_ids, [])
 
             logger.info(f"Auto-pipeline complete for products: {product_ids}")
@@ -173,7 +212,7 @@ async def upload_file(
         "products_in_upload": uploaded_product_ids,
         "message": (
             f"Imported {success} row(s) for {len(uploaded_product_ids)} channel(s). "
-            "Feature engineering, scoring, and alerts running in background using the existing trained model."
+            "Feature engineering, scoring, and alerts running in background using pre-trained models."
         ),
     }
 
