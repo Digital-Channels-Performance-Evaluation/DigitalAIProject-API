@@ -1,24 +1,43 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from typing import Optional
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    access_token: Optional[str] = Cookie(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    token = credentials.credentials
+    """
+    Get current user from HTTPOnly cookie (primary) or Authorization header (fallback).
+    This supports both cookie-based and header-based authentication.
+    """
+    # Try cookie first (more secure)
+    token = access_token
+    
+    # Fallback to Authorization header for API clients
+    if not token and credentials:
+        token = credentials.credentials
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
+    
     user_id = payload.get("sub")
     user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
     if not user:

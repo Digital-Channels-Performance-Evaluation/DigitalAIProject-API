@@ -1,9 +1,11 @@
 import os
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, Response, Cookie
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+from typing import Optional
 
 from app.core.database import get_db
 from app.core.security import (
@@ -66,33 +68,89 @@ async def login(payload: LoginRequest, request: Request, db: Session = Depends(g
     refresh_token = create_refresh_token(user.id)
     log_audit(db, user.id, "login_success", request)
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user_id=user.id,
-        email=user.email,
-        role=user.role,
-        full_name=user.full_name,
-        avatar_url=user.avatar_url,
+    # Create response with HTTPOnly cookies
+    response = JSONResponse(content={
+        "user_id": user.id,
+        "email": user.email,
+        "role": user.role,
+        "full_name": user.full_name,
+        "avatar_url": user.avatar_url,
+        "message": "Login successful"
+    })
+    
+    # Set HTTPOnly cookies for security
+    from app.core.config import settings as cfg
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,  # Prevents JavaScript access (XSS protection)
+        secure=cfg.COOKIE_SECURE,  # HTTPS only in production
+        samesite=cfg.COOKIE_SAMESITE,
+        max_age=cfg.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # 15 minutes in seconds
+        path="/"
     )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=cfg.COOKIE_SECURE,
+        samesite=cfg.COOKIE_SAMESITE,
+        max_age=cfg.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # 7 days in seconds
+        path="/"
+    )
+    
+    return response
 
 
-@router.post("/refresh", response_model=AccessTokenResponse)
-async def refresh_token(payload: RefreshRequest, db: Session = Depends(get_db)):
-    token_data = decode_token(payload.refresh_token)
+@router.post("/refresh")
+async def refresh_token(
+    refresh_token: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db)
+):
+    """Refresh access token using HTTPOnly cookie"""
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found")
+    
+    token_data = decode_token(refresh_token)
     if not token_data or token_data.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+    
     user_id = token_data.get("sub")
     user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return AccessTokenResponse(access_token=create_access_token(user.id, user.role))
+    
+    new_access_token = create_access_token(user.id, user.role)
+    
+    # Return new access token in HTTPOnly cookie
+    from app.core.config import settings as cfg
+    response = JSONResponse(content={"message": "Token refreshed"})
+    response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        secure=cfg.COOKIE_SECURE,
+        samesite=cfg.COOKIE_SAMESITE,
+        max_age=cfg.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/"
+    )
+    return response
 
 
 @router.post("/logout")
-async def logout(request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Logout and clear HTTPOnly cookies"""
     log_audit(db, current_user.id, "logout", request)
-    return {"message": "Logged out successfully"}
+    
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    # Clear both cookies
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="refresh_token", path="/")
+    return response
 
 
 @router.get("/me")

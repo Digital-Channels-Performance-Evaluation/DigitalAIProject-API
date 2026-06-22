@@ -6,6 +6,9 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
  *
  * FastAPI sends 308 redirects for trailing-slash URLs.
  * The interceptor below strips ALL trailing slashes before "?" or end-of-string.
+ * 
+ * IMPORTANT: HTTPOnly cookies are now used for authentication.
+ * withCredentials: true ensures cookies are sent with requests.
  */
 const api = axios.create({
   baseURL: "/api",
@@ -13,7 +16,7 @@ const api = axios.create({
   // 30s for normal requests; long-running ML endpoints get their own timeout via config override
   timeout: 30_000,
   maxRedirects: 5,
-  withCredentials: false,
+  withCredentials: true,  // REQUIRED for HTTPOnly cookies
 });
 
 // ── Strip trailing slash (handles /path/ and /path/?query) ──────────────
@@ -21,12 +24,8 @@ function stripSlash(url: string): string {
   return url.replace(/\/\?/, "?").replace(/\/$/, "");
 }
 
-// ── Attach JWT access token + strip trailing slash ───────────────────────
+// ── Strip trailing slash only ───────────────────────────────────────────
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
   if (config.url) config.url = stripSlash(config.url);
   return config;
 });
@@ -39,16 +38,16 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       try {
-        const rt = localStorage.getItem("refresh_token");
-        if (rt) {
-          const { data } = await axios.post("/api/auth/refresh", { refresh_token: rt });
-          localStorage.setItem("access_token", data.access_token);
-          original.headers.Authorization = `Bearer ${data.access_token}`;
-          return api(original);
-        }
+        // Call refresh endpoint - it will use HTTPOnly refresh_token cookie
+        await axios.post("/api/auth/refresh", {}, { withCredentials: true });
+        // Retry original request - new access_token cookie is now set
+        return api(original);
       } catch {
-        localStorage.clear();
-        window.location.href = "/login";
+        // Refresh failed - redirect to login
+        if (typeof window !== "undefined") {
+          localStorage.clear();
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(error);
@@ -60,13 +59,9 @@ export const apiLong = axios.create({
   baseURL: "/api",
   headers: { "Content-Type": "application/json" },
   timeout: 120_000,
-  withCredentials: false,
+  withCredentials: true,  // REQUIRED for HTTPOnly cookies
 });
 apiLong.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
   if (config.url) config.url = stripSlash(config.url);
   return config;
 });

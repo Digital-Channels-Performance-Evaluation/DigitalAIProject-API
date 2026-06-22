@@ -5,11 +5,13 @@ import Header from "@/components/layout/Header";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { refreshBus } from "@/lib/refresh-bus";
+import { useAuthStore } from "@/lib/auth-store";
 
 type StepStatus = "pending" | "running" | "done" | "error";
 type Step = { label: string; status: StepStatus; detail?: string };
 
 export default function SettingsPage() {
+  const { user, isLoading } = useAuthStore();
   const [file, setFile]             = useState<File | null>(null);
   const [uploading, setUploading]   = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
@@ -18,18 +20,24 @@ export default function SettingsPage() {
   const [autoTrainEnabled, setAutoTrainEnabled] = useState(false);
   const [autoTrainLoading, setAutoTrainLoading] = useState(false);
 
-  // Fetch auto-train config on mount
+  // Check if user is admin (only super_admin can control model training)
+  const isAdmin = user?.role === "super_admin";
+
+  // Fetch auto-train config on mount (only if admin)
   useEffect(() => {
+    if (!isAdmin) return; // Skip if not admin
+    
     const fetchConfig = async () => {
       try {
         const res = await api.get("/ml/config/auto-train");
         setAutoTrainEnabled(res.data.auto_train_on_upload);
       } catch (err) {
+        console.error("Failed to fetch auto-train config:", err);
         // Silently fail - user might not have permission
       }
     };
     fetchConfig();
-  }, []);
+  }, [isAdmin]);
 
   const handleToggleAutoTrain = async () => {
     setAutoTrainLoading(true);
@@ -180,67 +188,74 @@ export default function SettingsPage() {
         subtitle="Upload KPI data — feature engineering, scoring and model retraining run automatically"
       />
       <div className="p-6 space-y-5 max-w-3xl">
-        {/* ── Auto-Train Configuration ────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold flex-shrink-0">
-                <Settings size={14} />
+        {/* ── Auto-Train Configuration (Admin Only) ────────────────────────────────────── */}
+        {user && isAdmin && (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                  <Settings size={14} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    Model Training Mode
+                    <span className="px-2 py-0.5 text-[10px] font-semibold bg-[#9B1535] text-white rounded">
+                      ADMIN ONLY
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Control when ML models are automatically trained
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900">Model Training Mode</h3>
-                <p className="text-xs text-gray-500">
-                  Control when ML models are automatically trained
+              <button
+                onClick={handleToggleAutoTrain}
+                disabled={autoTrainLoading}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  autoTrainEnabled 
+                    ? "bg-amber-500 focus:ring-amber-500" 
+                    : "bg-gray-200 focus:ring-gray-400"
+                } ${autoTrainLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    autoTrainEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {autoTrainEnabled ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-amber-800 mb-1.5 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Development Mode: Auto-Training Enabled
+                </p>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  Models will automatically train on every data upload. This adds 20-30 seconds to each upload 
+                  but ensures models are always up-to-date. Best for development and testing.
+                </p>
+                <p className="text-xs text-amber-600 mt-2 font-medium">
+                  💡 Recommended: Disable for production to keep uploads fast.
                 </p>
               </div>
-            </div>
-            <button
-              onClick={handleToggleAutoTrain}
-              disabled={autoTrainLoading}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                autoTrainEnabled 
-                  ? "bg-amber-500 focus:ring-amber-500" 
-                  : "bg-gray-200 focus:ring-gray-400"
-              } ${autoTrainLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  autoTrainEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
+            ) : (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-green-800 mb-1.5 flex items-center gap-2">
+                  <CheckCircle2 size={12} className="text-green-600" />
+                  Production Mode: Manual Training (Recommended)
+                </p>
+                <p className="text-xs text-green-700 leading-relaxed">
+                  Uploads are fast (~2 seconds). Models use existing training for predictions. 
+                  Train models manually when needed or schedule periodic retraining.
+                </p>
+                <p className="text-xs text-green-600 mt-2 font-medium">
+                  ⚡ This is the recommended setting for production environments.
+                </p>
+              </div>
+            )}
           </div>
-
-          {autoTrainEnabled ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-amber-800 mb-1.5 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                Development Mode: Auto-Training Enabled
-              </p>
-              <p className="text-xs text-amber-700 leading-relaxed">
-                Models will automatically train on every data upload. This adds 20-30 seconds to each upload 
-                but ensures models are always up-to-date. Best for development and testing.
-              </p>
-              <p className="text-xs text-amber-600 mt-2 font-medium">
-                💡 Recommended: Disable for production to keep uploads fast.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-green-800 mb-1.5 flex items-center gap-2">
-                <CheckCircle2 size={12} className="text-green-600" />
-                Production Mode: Manual Training (Recommended)
-              </p>
-              <p className="text-xs text-green-700 leading-relaxed">
-                Uploads are fast (~2 seconds). Models use existing training for predictions. 
-                Train models manually when needed or schedule periodic retraining.
-              </p>
-              <p className="text-xs text-green-600 mt-2 font-medium">
-                ⚡ This is the recommended setting for production environments.
-              </p>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Validation errors */}
         {validationErrors.length > 0 && (

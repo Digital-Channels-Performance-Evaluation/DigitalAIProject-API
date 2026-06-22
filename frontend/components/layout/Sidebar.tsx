@@ -73,12 +73,12 @@ const NAV_ITEMS = [
     roles: ["super_admin", "executive_management", "data_engineer",
             "ml_engineer", "risk_team", "compliance_team"],
   },
-  {
-    href: "/dashboard/models",
-    label: "Model Management",
-    icon: Brain,
-    roles: ["super_admin", "ml_engineer", "data_engineer"],
-  },
+  // {
+  //   href: "/dashboard/models",
+  //   label: "Model Management",
+  //   icon: Brain,
+  //   roles: ["super_admin", "ml_engineer", "data_engineer"],
+  // },
   {
     href: "/dashboard/insights",
     label: "Executive Insights",

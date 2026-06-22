@@ -21,8 +21,13 @@ class Settings(BaseSettings):
     # Generate a strong secret: python -c "import secrets; print(secrets.token_hex(64))"
     JWT_SECRET_KEY: str = "CHANGE_ME_BEFORE_DEPLOY"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Changed to 15 minutes for session timeout
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    
+    # Session settings
+    SESSION_INACTIVITY_TIMEOUT_MINUTES: int = 15  # Auto logout after 15 min inactivity
+    COOKIE_SECURE: bool = False  # Set to True in production with HTTPS
+    COOKIE_SAMESITE: str = "lax"  # 'lax', 'strict', or 'none'
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
