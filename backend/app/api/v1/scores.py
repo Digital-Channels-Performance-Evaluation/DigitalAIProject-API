@@ -96,7 +96,7 @@ async def get_dashboard_kpis(
 
 @router.get("/dashboard/charts", response_model=DashboardCharts)
 async def get_dashboard_charts(
-    days: Optional[int] = Query(None, ge=1, le=3650),
+    days: Optional[int] = Query(30, ge=1, le=365),  # Default to last 30 days
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -106,17 +106,25 @@ async def get_dashboard_charts(
     product_map = {p.id: p.name for p in products}
     product_ids = list(product_map.keys())
 
-    scores_q = db.query(Score).filter(Score.product_id.in_(product_ids))
-    raw_q    = db.query(RawData).filter(RawData.product_id.in_(product_ids))
+    # Always apply date filter (default 30 days for performance)
+    cutoff = date.today() - timedelta(days=days)
+    
+    scores_q = (
+        db.query(Score)
+        .filter(Score.product_id.in_(product_ids), Score.period_date >= cutoff)
+        .order_by(Score.period_date.desc())
+        .limit(1000)  # Safety limit
+    )
+    
+    raw_q = (
+        db.query(RawData)
+        .filter(RawData.product_id.in_(product_ids), RawData.period_date >= cutoff)
+        .order_by(RawData.period_date.desc())
+        .limit(1000)  # Safety limit
+    )
 
-    # Only apply date filter when caller explicitly passes days
-    if days is not None:
-        cutoff   = date.today() - timedelta(days=days)
-        scores_q = scores_q.filter(Score.period_date >= cutoff)
-        raw_q    = raw_q.filter(RawData.period_date >= cutoff)
-
-    all_scores = scores_q.order_by(Score.period_date).all()
-    all_raw    = raw_q.order_by(RawData.period_date).all()
+    all_scores = scores_q.all()
+    all_raw = raw_q.all()
 
     performance_trend = [
         TrendPoint(

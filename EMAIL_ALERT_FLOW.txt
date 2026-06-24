@@ -1,0 +1,215 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    EMAIL ALERT SYSTEM - WORKFLOW DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          1. PREDICTION REQUEST                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                    ┌──────────────────────────────────┐
+                    │   POST /api/ml/predict           │
+                    │   - product_id: 123              │
+                    │   - features: {...}              │
+                    └──────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          2. ML SERVICE PREDICTION                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────────────────────┐
+                    │   ml_service.predict()           │
+                    │   ✓ Load trained model           │
+                    │   ✓ Process features             │
+                    │   ✓ Generate prediction          │
+                    │   ✓ Return score & tier          │
+                    └──────────────────────────────────┘
+                                       │
+                                       ▼
+                              Result: {
+                                "score": 85.5,
+                                "tier": "Good",
+                                "period_date": "2026-06-23"
+                              }
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     3. ALERT NOTIFICATION SERVICE                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────────────────────┐
+                    │   Analyze Prediction:            │
+                    │   • Score: 85.5/100              │
+                    │   • Tier: Good                   │
+                    │   • Previous: 80.2               │
+                    │   • Change: +5.3 (improving)     │
+                    │   • Severity: LOW                │
+                    └──────────────────────────────────┘
+                                       │
+                                       ▼
+                    ┌──────────────────────────────────┐
+                    │   Create Alert Record:           │
+                    │   INSERT INTO alerts             │
+                    │   - product_id: 123              │
+                    │   - alert_type: score_drop       │
+                    │   - severity: low                │
+                    │   - metric_value: 85.5           │
+                    │   - is_resolved: false           │
+                    └──────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      4. GET NOTIFICATION RECIPIENTS                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+           ┌───────────────────────────┴────────────────────────────┐
+           │                                                        │
+           ▼                                                        ▼
+  ALERT_PRODUCT_MANAGERS_ONLY = TRUE              ALERT_PRODUCT_MANAGERS_ONLY = FALSE
+           │                                                        │
+           ▼                                                        ▼
+  ┌──────────────────────┐                        ┌──────────────────────────────┐
+  │  Product Managers    │                        │  Product Managers            │
+  │  ✓ role: PM          │                        │  ✓ role: PM                  │
+  │  ✓ is_active: true   │                        │  + Executive Management      │
+  │                      │                        │  + Super Admins              │
+  └──────────────────────┘                        │  ✓ is_active: true           │
+           │                                      └──────────────────────────────┘
+           │                                                        │
+           └───────────────────────────┬────────────────────────────┘
+                                       │
+                                       ▼
+                    Recipients: [
+                      "john.doe@ahadubank.com",
+                      "jane.smith@ahadubank.com",
+                      "manager@ahadubank.com"
+                    ]
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         5. EMAIL SERVICE - BUILD EMAIL                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────────────────────┐
+                    │   Build HTML Email:              │
+                    │   ┌────────────────────────┐     │
+                    │   │ 🔔 Prediction Alert    │     │
+                    │   │ Mobile Banking App     │     │
+                    │   │                        │     │
+                    │   │ Score: 85.5/100        │     │
+                    │   │ Tier: 🟢 Good          │     │
+                    │   │ Trend: 📈 Improving    │     │
+                    │   │                        │     │
+                    │   │ [View Details]         │     │
+                    │   └────────────────────────┘     │
+                    └──────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         6. SMTP SERVER CONNECTION                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────────────────────┐
+                    │   Connect to SMTP:               │
+                    │   • Host: smtp.gmail.com         │
+                    │   • Port: 587                    │
+                    │   • TLS: enabled                 │
+                    │   • Auth: email + password       │
+                    └──────────────────────────────────┘
+                                       │
+                                       ▼
+                    ┌──────────────────────────────────┐
+                    │   Send Email:                    │
+                    │   • From: noreply@ahadubank.com  │
+                    │   • To: [recipients]             │
+                    │   • Subject: Prediction Alert    │
+                    │   • Body: HTML + Plain Text      │
+                    └──────────────────────────────────┘
+                                       │
+                           ┌───────────┴───────────┐
+                           │                       │
+                           ▼                       ▼
+                      ✅ SUCCESS              ❌ FAILURE
+                           │                       │
+                           │                       ▼
+                           │              Log Error + Continue
+                           │              (Don't break prediction)
+                           │                       │
+                           └───────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      7. PRODUCT MANAGERS RECEIVE EMAIL                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+           ┌───────────────────────────┼────────────────────────────┐
+           ▼                           ▼                            ▼
+    ┌──────────┐              ┌──────────┐                 ┌──────────┐
+    │ Manager  │              │ Manager  │                 │ Manager  │
+    │    #1    │              │    #2    │                 │    #3    │
+    │          │              │          │                 │          │
+    │ 📧 Inbox │              │ 📧 Inbox │                 │ 📧 Inbox │
+    └──────────┘              └──────────┘                 └──────────┘
+           │                           │                            │
+           └───────────────────────────┼────────────────────────────┘
+                                       │
+                                       ▼
+                    ┌──────────────────────────────────┐
+                    │   Manager Actions:               │
+                    │   • Read alert                   │
+                    │   • Click "View Details"         │
+                    │   • Review product dashboard     │
+                    │   • Take action if needed        │
+                    └──────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+                              CONFIGURATION FLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+                    ┌──────────────────────────────────┐
+                    │   .env Configuration             │
+                    └──────────────────────────────────┘
+                                       │
+           ┌───────────────────────────┼────────────────────────────┐
+           │                           │                            │
+           ▼                           ▼                            ▼
+  EMAIL_ENABLED=true         SMTP_HOST=smtp.gmail.com    SEND_PREDICTION_ALERTS=true
+  (Master switch)            SMTP_PORT=587               (Trigger on prediction)
+                             SMTP_USER=email@gmail.com
+                             SMTP_PASSWORD=app-password
+                                       │
+                                       ▼
+                    ┌──────────────────────────────────┐
+                    │   Runtime API Control            │
+                    │   POST /api/ml/alerts/settings   │
+                    │   (Override without restart)     │
+                    └──────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+                                SEVERITY LOGIC
+═══════════════════════════════════════════════════════════════════════════════
+
+Tier: Poor + Trend: Declining    →  🔴 CRITICAL (Red email)
+Tier: Poor + Trend: Stable       →  🟠 HIGH (Orange email)
+Tier: Average + Trend: Declining →  🟡 MEDIUM (Yellow email)
+Tier: Good + Trend: Stable       →  🟢 LOW (Green email)
+Tier: Excellent + Trend: Improving → 🟢 LOW (Green email)
+
+═══════════════════════════════════════════════════════════════════════════════
+                            TESTING ENDPOINTS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Test Email Sending:
+   POST /api/ml/alerts/test-email?product_id=1
+   → Sends sample email to verify SMTP setup
+
+2. View Recipients:
+   GET /api/ml/alerts/recipients
+   → Shows who receives alerts + configuration status
+
+3. Update Settings:
+   POST /api/ml/alerts/settings
+   → Change email settings at runtime
+
+═══════════════════════════════════════════════════════════════════════════════

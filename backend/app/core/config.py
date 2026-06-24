@@ -55,6 +55,19 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60
 
+    # Email Configuration
+    EMAIL_ENABLED: bool = False  # Set to True to enable email notifications
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""  # Your SMTP username
+    SMTP_PASSWORD: str = ""  # Your SMTP password
+    FROM_EMAIL: str = "noreply@ahadubank.com"
+    FRONTEND_URL: str = "http://localhost:3000"
+    
+    # Alert notification settings
+    SEND_PREDICTION_ALERTS: bool = True  # Send alerts when predictions are made
+    ALERT_PRODUCT_MANAGERS_ONLY: bool = True  # Send alerts only to product managers
+
     class Config:
         env_file = ".env"
         case_sensitive = True

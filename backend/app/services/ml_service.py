@@ -1072,9 +1072,9 @@ class MLService:
                             break
                 prev_val = float(prev_val) if prev_val is not None else curr
                 raw_trend = curr - prev_val
-                # Cap trend at ±20% of the base value to avoid runaway projections
-                max_delta = max(abs(curr) * 0.20, 1e-6)
-                trend_features[f] = float(np.clip(raw_trend * 0.5, -max_delta, max_delta))
+                # Reduced trend impact: Cap at ±10% and apply 25% weight
+                max_delta = max(abs(curr) * 0.10, 1e-6)
+                trend_features[f] = float(np.clip(raw_trend * 0.25, -max_delta, max_delta))
 
         # ── Feature-type bounds (for safe clipping after projection) ──────────
         # Rate/ratio features: must stay in [0, 1]
@@ -1099,8 +1099,8 @@ class MLService:
 
         predictions = []
         for horizon_months in [1, 2, 3]:
-            # Exponential damping: trend contribution shrinks each month
-            damping = 0.6 ** (horizon_months - 1)   # 1.0, 0.6, 0.36
+            # Stronger damping: trend contribution shrinks faster
+            damping = 0.4 ** (horizon_months - 1)   # 1.0, 0.4, 0.16
 
             projected: dict = {}
             for f in active_features:

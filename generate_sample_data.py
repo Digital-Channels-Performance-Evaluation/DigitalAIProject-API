@@ -23,10 +23,10 @@ COLS_CSV = [
     "fraud_event_count", "security_incident_count",
 ]
 
-MIN_ROWS = 50
-MAX_ROWS = 150
+MIN_ROWS = 19000
+MAX_ROWS = 25000
 NUM_PRODUCTS = len(PRODUCTS)
-TARGET_ROWS = 120  # 20 days × 6 products — quick upload testing
+TARGET_ROWS = 20000  # Generate 20,000 rows for training
 DAYS = TARGET_ROWS // NUM_PRODUCTS
 
 

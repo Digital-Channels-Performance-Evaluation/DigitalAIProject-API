@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 import logging
 
 from app.core.database import get_db
 from app.core.deps import require_roles, get_current_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.ml_models import ModelRegistry
 from app.schemas.ml import (
@@ -12,6 +14,7 @@ from app.schemas.ml import (
     RetrainRequest, ModelRegistryResponse, SimilarProductResponse,
 )
 from app.services.ml_service import ml_service
+from app.services.alert_notification_service import alert_notification_service
 
 router = APIRouter(prefix="/ml", tags=["ML / Model Management"])
 logger = logging.getLogger(__name__)
@@ -126,6 +129,22 @@ async def predict(
 ):
     try:
         result = ml_service.predict(db, payload.product_id, payload.features)
+        
+        # Send email notification to product managers
+        try:
+            alert_notification_service.send_prediction_notification(
+                db=db,
+                product_id=payload.product_id,
+                prediction_score=result.get("score", 0),
+                prediction_tier=result.get("tier", "N/A"),
+                period_date=result.get("period_date", str(datetime.now().date())),
+                previous_score=result.get("previous_score"),  # If available in result
+                create_alert=True  # Create alert record in database
+            )
+        except Exception as e:
+            # Log error but don't fail the prediction
+            logger.warning(f"Failed to send prediction alert: {e}")
+        
         return PredictResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -369,6 +388,22 @@ async def get_3month_predictions(
     """Generate and return 3-month forward predictions for a product."""
     try:
         predictions = ml_service.predict_3months(db, product_id)
+        
+        # Send email notification for the first prediction (current month)
+        if predictions and len(predictions) > 0:
+            first_pred = predictions[0]
+            try:
+                alert_notification_service.send_prediction_notification(
+                    db=db,
+                    product_id=product_id,
+                    prediction_score=first_pred.get("score", 0),
+                    prediction_tier=first_pred.get("tier", "N/A"),
+                    period_date=first_pred.get("period_date", str(datetime.now().date())),
+                    create_alert=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send 3-month prediction alert: {e}")
+        
         return {"product_id": product_id, "predictions": predictions}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -410,3 +445,102 @@ async def train_all_models(
     else:
         task_id = _run_retrain_in_thread([], dataset_version="manual_train_all")
         return {"message": "Full retrain started in background thread (no Celery worker running).", "task_id": task_id, "mode": "thread"}
+
+
+@router.post("/alerts/test-email")
+async def test_prediction_alert(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin", "ml_engineer", "product_manager")),
+):
+    """
+    Test endpoint to send a sample prediction alert email.
+    Useful for testing email configuration without making actual predictions.
+    """
+    from app.models.product import Product
+    
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Send test notification
+    success = alert_notification_service.send_prediction_notification(
+        db=db,
+        product_id=product_id,
+        prediction_score=75.5,
+        prediction_tier="Good",
+        period_date=str(datetime.now().date()),
+        previous_score=70.2,
+        create_alert=False  # Don't create an actual alert record for test
+    )
+    
+    if success:
+        return {"message": "Test alert email sent successfully", "product_id": product_id}
+    else:
+        return {"message": "Failed to send test alert email. Check logs and email configuration.", "product_id": product_id}
+
+
+@router.get("/alerts/recipients")
+async def get_alert_recipients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin", "product_manager")),
+):
+    """
+    Get list of users who will receive prediction alert emails.
+    """
+    recipients = alert_notification_service.get_all_notification_recipients(db)
+    return {
+        "count": len(recipients),
+        "recipients": [
+            {
+                "id": user.id,
+                "name": user.full_name,
+                "email": user.email,
+                "role": user.role
+            }
+            for user in recipients
+        ],
+        "email_enabled": settings.EMAIL_ENABLED,
+        "alerts_enabled": settings.SEND_PREDICTION_ALERTS,
+        "product_managers_only": settings.ALERT_PRODUCT_MANAGERS_ONLY
+    }
+
+
+@router.post("/alerts/settings")
+async def update_alert_settings(
+    email_enabled: bool = None,
+    send_alerts: bool = None,
+    product_managers_only: bool = None,
+    current_user: User = Depends(require_roles("super_admin")),
+):
+    """
+    Update alert settings at runtime (does not persist to .env).
+    Only super admins can change these settings.
+    """
+    from app.core.config import settings as cfg
+    
+    changes = {}
+    if email_enabled is not None:
+        old = cfg.EMAIL_ENABLED
+        cfg.EMAIL_ENABLED = email_enabled
+        changes["email_enabled"] = {"old": old, "new": email_enabled}
+    
+    if send_alerts is not None:
+        old = cfg.SEND_PREDICTION_ALERTS
+        cfg.SEND_PREDICTION_ALERTS = send_alerts
+        changes["send_prediction_alerts"] = {"old": old, "new": send_alerts}
+    
+    if product_managers_only is not None:
+        old = cfg.ALERT_PRODUCT_MANAGERS_ONLY
+        cfg.ALERT_PRODUCT_MANAGERS_ONLY = product_managers_only
+        changes["alert_product_managers_only"] = {"old": old, "new": product_managers_only}
+    
+    return {
+        "message": "Alert settings updated (runtime only - update .env for persistence)",
+        "changes": changes,
+        "current_settings": {
+            "email_enabled": cfg.EMAIL_ENABLED,
+            "send_prediction_alerts": cfg.SEND_PREDICTION_ALERTS,
+            "alert_product_managers_only": cfg.ALERT_PRODUCT_MANAGERS_ONLY
+        }
+    }
